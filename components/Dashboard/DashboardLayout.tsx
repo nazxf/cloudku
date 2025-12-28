@@ -216,11 +216,8 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({
                                         </div>
                                         <span className="text-sm">{item.label}</span>
                                     </div>
-                                    {item.badge && (
-                                        <span className="px-2 py-0.  bg-[#10B981] text-white text-[10px] font-bold rounded-full">
-                                            {item.badge}
-                                        </span>
-                                    )}
+                                   
+                                        
                                 </button>
                             ))}
                         </nav>
