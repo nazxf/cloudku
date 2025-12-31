@@ -50,20 +50,26 @@ export const googleLogin = async (userData: {
  * GitHub OAuth Login handler
  */
 export const githubLogin = async (code: string): Promise<LoginResponse> => {
-    const response = await fetch(`${API_URL}/api/auth/github`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ code }),
-    });
+    try {
+        const response = await fetch(`${API_URL}/api/auth/github`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ code }),
+        });
 
-    if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'Login dengan GitHub gagal');
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.message || 'Login dengan GitHub gagal');
+        }
+
+        const data = await response.json();
+
+        return data;
+    } catch (error) {
+        throw error;
     }
-
-    return await response.json();
 };
 
 /**

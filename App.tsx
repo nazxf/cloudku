@@ -22,6 +22,8 @@ import SSLPage from './pages/SSL';
 import FileManagerPage from './pages/FileManager';
 import BillingPage from './pages/Billing';
 import SupportPage from './pages/Support';
+import TemplatesPage from './pages/Templates';
+import SocialLoginLoading from './components/SocialLoginLoading';
 
 
 
@@ -82,6 +84,7 @@ const App: React.FC = () => {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [user, setUser] = useState<{ name: string; email: string } | null>(null);
+  const [githubLoading, setGithubLoading] = useState(false);
 
   const handleOpenAuth = (mode: 'login' | 'register') => {
     setAuthMode(mode);
@@ -106,28 +109,66 @@ const App: React.FC = () => {
     const urlParams = new URLSearchParams(window.location.search);
     const code = urlParams.get('code');
 
-    if (code && !isAuthenticated() && !githubTriggered.current) {
+    // Process GitHub callback if code exists (regardless of current auth status)
+    // This allows re-login after closing browser
+    if (code && !githubTriggered.current) {
       githubTriggered.current = true;
+
       const performGithubLogin = async () => {
+        // Show loading state
+        setGithubLoading(true);
         setIsAuthModalOpen(true);
-        // We'll pass a signal to AuthModal to show loading or handle it here
+
+        // Track start time untuk minimum display duration
+        const startTime = Date.now();
+        const minLoadingDuration = 1500; // 1.5 detik minimum
+
         try {
           const response = await githubLogin(code);
+
           if (response.data?.token) {
+            // Save new token (this will replace any old token)
             saveToken(response.data.token);
+
             setUser({
               name: response.data.user.name,
               email: response.data.user.email
             });
-            // Clean URL
+
+            // Clean URL to remove code parameter
             window.history.replaceState({}, document.title, "/");
-            // Redirect to dashboard
-            window.location.href = '/dashboard';
+
+            // Ensure loading screen shows for minimum duration
+            const elapsed = Date.now() - startTime;
+            const remainingTime = Math.max(0, minLoadingDuration - elapsed);
+
+            setTimeout(() => {
+              window.location.href = '/dashboard';
+            }, remainingTime);
+          } else {
+            // Ensure minimum loading time even on error
+            const elapsed = Date.now() - startTime;
+            const remainingTime = Math.max(0, minLoadingDuration - elapsed);
+
+            setTimeout(() => {
+              alert('Login gagal: Tidak menerima token dari server');
+              window.history.replaceState({}, document.title, "/");
+              setIsAuthModalOpen(false);
+              setGithubLoading(false);
+            }, remainingTime);
           }
         } catch (err) {
-          console.error('GitHub Login failed:', err);
-          // Just clean URL for now
-          window.history.replaceState({}, document.title, "/");
+          // Ensure minimum loading time even on error
+          const elapsed = Date.now() - startTime;
+          const remainingTime = Math.max(0, minLoadingDuration - elapsed);
+
+          setTimeout(() => {
+            alert(`Login GitHub gagal: ${err instanceof Error ? err.message : 'Unknown error'}\n\nSilakan coba lagi.`);
+            // Clean URL and close modal on error
+            window.history.replaceState({}, document.title, "/");
+            setIsAuthModalOpen(false);
+            setGithubLoading(false);
+          }, remainingTime);
         }
       };
 
@@ -162,10 +203,14 @@ const App: React.FC = () => {
             <Route path="/files" element={<FileManagerPage />} />
             <Route path="/billing" element={<BillingPage />} />
             <Route path="/support" element={<SupportPage />} />
+            <Route path="/templates" element={<TemplatesPage />} />
 
             {/* Redirect unknown routes to home */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
+
+          {/* GitHub Loading Overlay */}
+          <SocialLoginLoading provider="GitHub" isVisible={githubLoading} />
 
           {/* Auth Modal Overlay - Global */}
           <AuthModal

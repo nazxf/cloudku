@@ -97,13 +97,11 @@ export const initializeGoogleSignIn = (
     onSuccess: (user: GoogleUser) => void
 ): void => {
     if (!window.google?.accounts?.id) {
-        console.error('Google Sign-In not loaded');
         return;
     }
 
     // Prevent multiple initializations
     if (isGoogleInitialized) {
-        console.log('Google Sign-In already initialized, updating callback');
         currentCallback = onSuccess;
         return;
     }
@@ -119,13 +117,12 @@ export const initializeGoogleSignIn = (
                     currentCallback(userData);
                 }
             } catch (error) {
-                console.error('Error parsing Google credential:', error);
+                // Silent error handling
             }
         },
     });
 
     isGoogleInitialized = true;
-    console.log('✅ Google Sign-In initialized');
 };
 
 /**
@@ -143,12 +140,10 @@ export const renderGoogleButton = (
     }
 ): void => {
     if (!window.google?.accounts?.id) {
-        console.error('Google Sign-In not loaded');
         return;
     }
 
     if (!isGoogleInitialized) {
-        console.error('Google Sign-In not initialized. Call initializeGoogleSignIn first.');
         return;
     }
 
@@ -165,7 +160,7 @@ export const renderGoogleButton = (
         logo_alignment: 'left',
     });
 
-    console.log('✅ Google button rendered');
+
 };
 
 /**
@@ -174,5 +169,4 @@ export const renderGoogleButton = (
 export const resetGoogleSignIn = (): void => {
     isGoogleInitialized = false;
     currentCallback = null;
-    console.log('Google Sign-In reset');
 };

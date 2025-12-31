@@ -13,11 +13,21 @@ interface JwtPayload {
     email: string;
 }
 
+// Extended Request interface with user data
+export interface AuthRequest extends Request {
+    user?: {
+        id: number;
+        email: string;
+    };
+    userId?: number;
+    userEmail?: string;
+}
+
 /**
  * Middleware untuk verifikasi JWT token
  */
 export const authenticate = (
-    req: Request,
+    req: AuthRequest,
     res: Response,
     next: NextFunction
 ) => {
@@ -38,8 +48,12 @@ export const authenticate = (
         const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload;
 
         // Attach user info to request
-        (req as any).userId = decoded.userId;
-        (req as any).userEmail = decoded.email;
+        req.userId = decoded.userId;
+        req.userEmail = decoded.email;
+        req.user = {
+            id: decoded.userId,
+            email: decoded.email
+        };
 
         next();
     } catch (error) {

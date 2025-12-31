@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { loadGoogleScript, initializeGoogleSignIn, renderGoogleButton, type GoogleUser } from '../utils/googleAuth';
 import { googleLogin, register as registerApi, login as loginApi, saveToken } from '../utils/authApi';
+import SocialLoginLoading from './SocialLoginLoading';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -23,6 +24,10 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode, onS
     setIsLoading(true);
     setError('');
 
+    // Track start time untuk minimum display duration
+    const startTime = Date.now();
+    const minLoadingDuration = 1500; // 1.5 detik minimum
+
     try {
       const response = await googleLogin({
         email: googleUserData.email,
@@ -35,17 +40,28 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode, onS
         saveToken(response.data.token);
       }
 
-      onSuccess({
-        name: response.data?.user.name || googleUserData.name,
-        email: response.data?.user.email || googleUserData.email,
-        picture: response.data?.user.profile_picture || googleUserData.picture,
-      });
+      // Ensure loading screen shows for minimum duration
+      const elapsed = Date.now() - startTime;
+      const remainingTime = Math.max(0, minLoadingDuration - elapsed);
 
-      setIsLoading(false);
+      setTimeout(() => {
+        onSuccess({
+          name: response.data?.user.name || googleUserData.name,
+          email: response.data?.user.email || googleUserData.email,
+          picture: response.data?.user.profile_picture || googleUserData.picture,
+        });
+        setIsLoading(false);
+      }, remainingTime);
     } catch (err) {
-      console.error('Google Sign-In Error:', err);
-      setError(err instanceof Error ? err.message : 'Login dengan Google gagal.');
-      setIsLoading(false);
+      // Ensure minimum loading time even on error
+      const elapsed = Date.now() - startTime;
+      const remainingTime = Math.max(0, minLoadingDuration - elapsed);
+
+      setTimeout(() => {
+        console.error('Google Sign-In Error:', err);
+        setError(err instanceof Error ? err.message : 'Login dengan Google gagal.');
+        setIsLoading(false);
+      }, remainingTime);
     }
   }, [onSuccess]);
 
@@ -308,6 +324,9 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode, onS
           </div>
         </div>
       </div>
+
+      {/* Google Loading Overlay */}
+      <SocialLoginLoading provider="Google" isVisible={isLoading} />
     </div>
   );
 };

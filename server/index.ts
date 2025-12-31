@@ -9,6 +9,7 @@ import dotenv from 'dotenv';
 import { testConnection } from './db/pool';
 import authRoutes from './routes/auth';
 import hostingRoutes from './routes/hosting';
+import fileRoutes from './routes/files';
 
 // Load environment variables
 dotenv.config({ path: '.env.local' });
@@ -49,6 +50,7 @@ app.get('/health', (req: Request, res: Response) => {
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/hosting', hostingRoutes);
+app.use('/api/files', fileRoutes);
 
 // 404 handler
 app.use((req: Request, res: Response) => {

@@ -1,67 +1,597 @@
 import React, { useState } from 'react';
 import ProtectedDashboard from '../components/ProtectedDashboard';
+import { listFiles, uploadFile, downloadFile, deleteFile, createFolder, extractZipFile, renameFile } from '../utils/fileApi';
+import { readFileContent, updateFileContent } from '../utils/fileApi';
+import CodeEditorModal from '../components/CodeEditorModal';
+
+// Helper function untuk get Font Awesome icon berdasarkan file extension
+const getFileIcon = (fileName: string, type: string) => {
+    if (type === 'folder') {
+        return {
+            iconClass: 'fas fa-folder',
+            bgColor: 'bg-yellow-50',
+            textColor: 'text-yellow-600'
+        };
+    }
+
+    const ext = fileName.split('.').pop()?.toLowerCase() || '';
+
+    const iconMap: Record<string, { iconClass: string, bgColor: string, textColor: string }> = {
+        // Web
+        'html': { iconClass: 'fab fa-html5', bgColor: 'bg-orange-50', textColor: 'text-orange-600' },
+        'css': { iconClass: 'fab fa-css3-alt', bgColor: 'bg-blue-50', textColor: 'text-blue-600' },
+        'js': { iconClass: 'fab fa-js', bgColor: 'bg-yellow-50', textColor: 'text-yellow-500' },
+        'jsx': { iconClass: 'fab fa-react', bgColor: 'bg-cyan-50', textColor: 'text-cyan-500' },
+        'ts': { iconClass: 'fas fa-file-code', bgColor: 'bg-blue-50', textColor: 'text-blue-600' },
+        'tsx': { iconClass: 'fab fa-react', bgColor: 'bg-cyan-50', textColor: 'text-cyan-500' },
+        'json': { iconClass: 'fas fa-brackets-curly', bgColor: 'bg-gray-50', textColor: 'text-gray-600' },
+        'md': { iconClass: 'fab fa-markdown', bgColor: 'bg-gray-50', textColor: 'text-gray-700' },
+
+        // Backend
+        'php': { iconClass: 'fab fa-php', bgColor: 'bg-indigo-50', textColor: 'text-indigo-600' },
+        'py': { iconClass: 'fab fa-python', bgColor: 'bg-blue-50', textColor: 'text-blue-600' },
+        'java': { iconClass: 'fab fa-java', bgColor: 'bg-orange-50', textColor: 'text-orange-700' },
+        'rb': { iconClass: 'fas fa-gem', bgColor: 'bg-red-50', textColor: 'text-red-600' },
+        'go': { iconClass: 'fab fa-golang', bgColor: 'bg-cyan-50', textColor: 'text-cyan-600' },
+
+        // Config
+        'yml': { iconClass: 'fas fa-file-code', bgColor: 'bg-red-50', textColor: 'text-red-600' },
+        'yaml': { iconClass: 'fas fa-file-code', bgColor: 'bg-red-50', textColor: 'text-red-600' },
+        'xml': { iconClass: 'fas fa-file-code', bgColor: 'bg-purple-50', textColor: 'text-purple-600' },
+        'env': { iconClass: 'fas fa-gear', bgColor: 'bg-yellow-50', textColor: 'text-yellow-600' },
+
+        // Database
+        'sql': { iconClass: 'fas fa-database', bgColor: 'bg-blue-50', textColor: 'text-blue-600' },
+
+        // Images
+        'png': { iconClass: 'fas fa-file-image', bgColor: 'bg-purple-50', textColor: 'text-purple-600' },
+        'jpg': { iconClass: 'fas fa-file-image', bgColor: 'bg-purple-50', textColor: 'text-purple-600' },
+        'jpeg': { iconClass: 'fas fa-file-image', bgColor: 'bg-purple-50', textColor: 'text-purple-600' },
+        'gif': { iconClass: 'fas fa-file-image', bgColor: 'bg-pink-50', textColor: 'text-pink-600' },
+        'svg': { iconClass: 'fas fa-file-image', bgColor: 'bg-orange-50', textColor: 'text-orange-600' },
+        'webp': { iconClass: 'fas fa-file-image', bgColor: 'bg-purple-50', textColor: 'text-purple-600' },
+
+        // Documents
+        'pdf': { iconClass: 'fas fa-file-pdf', bgColor: 'bg-red-50', textColor: 'text-red-600' },
+        'doc': { iconClass: 'fas fa-file-word', bgColor: 'bg-blue-50', textColor: 'text-blue-600' },
+        'docx': { iconClass: 'fas fa-file-word', bgColor: 'bg-blue-50', textColor: 'text-blue-600' },
+        'xls': { iconClass: 'fas fa-file-excel', bgColor: 'bg-green-50', textColor: 'text-green-600' },
+        'xlsx': { iconClass: 'fas fa-file-excel', bgColor: 'bg-green-50', textColor: 'text-green-600' },
+        'ppt': { iconClass: 'fas fa-file-powerpoint', bgColor: 'bg-orange-50', textColor: 'text-orange-600' },
+        'pptx': { iconClass: 'fas fa-file-powerpoint', bgColor: 'bg-orange-50', textColor: 'text-orange-600' },
+
+        // Archives
+        'zip': { iconClass: 'fas fa-file-zipper', bgColor: 'bg-yellow-50', textColor: 'text-yellow-600' },
+        'rar': { iconClass: 'fas fa-file-zipper', bgColor: 'bg-yellow-50', textColor: 'text-yellow-600' },
+        'tar': { iconClass: 'fas fa-file-zipper', bgColor: 'bg-orange-50', textColor: 'text-orange-600' },
+        'gz': { iconClass: 'fas fa-file-zipper', bgColor: 'bg-orange-50', textColor: 'text-orange-600' },
+
+        // Video
+        'mp4': { iconClass: 'fas fa-file-video', bgColor: 'bg-purple-50', textColor: 'text-purple-600' },
+        'avi': { iconClass: 'fas fa-file-video', bgColor: 'bg-purple-50', textColor: 'text-purple-600' },
+        'mov': { iconClass: 'fas fa-file-video', bgColor: 'bg-purple-50', textColor: 'text-purple-600' },
+
+        // Audio
+        'mp3': { iconClass: 'fas fa-file-audio', bgColor: 'bg-pink-50', textColor: 'text-pink-600' },
+        'wav': { iconClass: 'fas fa-file-audio', bgColor: 'bg-pink-50', textColor: 'text-pink-600' },
+
+        // Others
+        'txt': { iconClass: 'fas fa-file-lines', bgColor: 'bg-gray-50', textColor: 'text-gray-600' },
+        'log': { iconClass: 'fas fa-file-lines', bgColor: 'bg-gray-50', textColor: 'text-gray-600' },
+        'htaccess': { iconClass: 'fas fa-server', bgColor: 'bg-red-50', textColor: 'text-red-600' },
+    };
+
+    return iconMap[ext] || {
+        iconClass: 'fas fa-file',
+        bgColor: 'bg-gray-50',
+        textColor: 'text-gray-600'
+    };
+};
 
 const FileManagerPage: React.FC = () => {
     const [currentPath, setCurrentPath] = useState('/public_html');
+    const [files, setFiles] = useState<any[]>([]);
+    const [stats, setStats] = useState({
+        totalFiles: 0,
+        totalFolders: 0,
+        storageUsed: '0 B',
+        storageQuota: '10 GB'
+    });
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+    const [uploading, setUploading] = useState(false);
+    const [selectedFiles, setSelectedFiles] = useState<number[]>([]);
+    const [editorOpen, setEditorOpen] = useState(false);
+    const [editingFile, setEditingFile] = useState<{ name: string, path: string, content: string } | null>(null);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [sortBy, setSortBy] = useState<'name' | 'size' | 'modified' | 'type'>('name');
+    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+    const [isDragging, setIsDragging] = useState(false);
+    const fileInputRef = React.useRef<HTMLInputElement>(null);
+    const folderInputRef = React.useRef<HTMLInputElement>(null);
 
-    const files = [
-        {
-            id: 1,
-            name: 'index.html',
-            type: 'file',
-            size: '12.5 KB',
-            modified: '2 hours ago',
-            permissions: '644',
-        },
-        {
-            id: 2,
-            name: 'css',
-            type: 'folder',
-            size: '-',
-            modified: '1 day ago',
-            permissions: '755',
-        },
-        {
-            id: 3,
-            name: 'js',
-            type: 'folder',
-            size: '-',
-            modified: '1 day ago',
-            permissions: '755',
-        },
-        {
-            id: 4,
-            name: 'images',
-            type: 'folder',
-            size: '-',
-            modified: '3 days ago',
-            permissions: '755',
-        },
-        {
-            id: 5,
-            name: 'style.css',
-            type: 'file',
-            size: '8.2 KB',
-            modified: '5 hours ago',
-            permissions: '644',
-        },
-        {
-            id: 6,
-            name: 'script.js',
-            type: 'file',
-            size: '15.7 KB',
-            modified: '1 day ago',
-            permissions: '644',
-        },
-        {
-            id: 7,
-            name: '.htaccess',
-            type: 'file',
-            size: '1.1 KB',
-            modified: '1 week ago',
-            permissions: '644',
-        },
-    ];
+    // Fetch files on mount and when path changes
+    React.useEffect(() => {
+        loadFiles();
+        setSelectedFiles([]); // Clear selection saat pindah folder
+    }, [currentPath]);
+
+    const loadFiles = async () => {
+        try {
+            setLoading(true);
+            setError('');
+            const data = await listFiles(currentPath);
+            setFiles(data.files);
+            setStats(data.stats);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Failed to load files');
+            console.error('Load files error:', err);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleUploadClick = () => {
+        fileInputRef.current?.click();
+    };
+
+    const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const selectedFiles = e.target.files;
+        console.log('File Select Event:', {
+            filesCount: selectedFiles?.length,
+            files: selectedFiles ? Array.from(selectedFiles).map((f: File) => ({ name: f.name, size: f.size })) : null
+        });
+
+        if (!selectedFiles || selectedFiles.length === 0) {
+            console.log('No files selected, aborting');
+            return;
+        }
+
+        try {
+            setUploading(true);
+            setError('');
+            console.log('Starting upload for', selectedFiles.length, 'files to path:', currentPath);
+
+            for (let i = 0; i < selectedFiles.length; i++) {
+                console.log(`Uploading file ${i + 1}/${selectedFiles.length}:`, selectedFiles[i].name);
+                await uploadFile(selectedFiles[i], currentPath);
+            }
+
+            // Reload files after upload
+            console.log('Upload complete, reloading files...');
+            await loadFiles();
+            alert(`${selectedFiles.length} file(s) uploaded successfully!`);
+        } catch (err) {
+            console.error('Upload Error in handleFileSelect:', err);
+            setError(err instanceof Error ? err.message : 'Upload failed');
+            alert('Upload failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+        } finally {
+            setUploading(false);
+            if (fileInputRef.current) {
+                fileInputRef.current.value = '';
+            }
+            console.log('Upload process finished');
+        }
+    };
+
+    const handleFolderUploadClick = () => {
+        folderInputRef.current?.click();
+    };
+
+    const handleFolderSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const selectedFiles = e.target.files;
+        console.log('Folder Select Event:', {
+            filesCount: selectedFiles?.length,
+            files: selectedFiles ? Array.from(selectedFiles).map((f: File) => ({
+                name: f.name,
+                path: (f as any).webkitRelativePath || f.name
+            })) : null
+        });
+
+        if (!selectedFiles || selectedFiles.length === 0) {
+            console.log('No files in folder, aborting');
+            return;
+        }
+
+        try {
+            setUploading(true);
+            setError('');
+            console.log('Starting folder upload for', selectedFiles.length, 'files');
+
+            // Group files by directory structure
+            const filesByPath = new Map<string, File[]>();
+
+            for (let i = 0; i < selectedFiles.length; i++) {
+                const file = selectedFiles[i];
+                // Get relative path from webkitRelativePath
+                const relativePath = (file as any).webkitRelativePath || file.name;
+                const pathParts = relativePath.split('/');
+
+                // Skip root folder name, get subfolder path
+                const folderPath = pathParts.slice(0, -1).join('/');
+                const targetPath = folderPath ? `${currentPath}/${folderPath}` : currentPath;
+
+                if (!filesByPath.has(targetPath)) {
+                    filesByPath.set(targetPath, []);
+                }
+                filesByPath.get(targetPath)!.push(file);
+            }
+
+            // Upload files to their respective paths
+            let uploadedCount = 0;
+            for (const [path, files] of filesByPath.entries()) {
+                console.log(`Uploading ${files.length} files to path: ${path}`);
+                for (const file of files) {
+                    await uploadFile(file, path);
+                    uploadedCount++;
+                }
+            }
+
+            // Reload files after upload
+            console.log('Folder upload complete, reloading files...');
+            await loadFiles();
+            alert(`Folder uploaded successfully! ${uploadedCount} file(s) uploaded.`);
+        } catch (err) {
+            console.error('Folder upload error:', err);
+            setError(err instanceof Error ? err.message : 'Folder upload failed');
+            alert('Folder upload failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+        } finally {
+            setUploading(false);
+            if (folderInputRef.current) {
+                folderInputRef.current.value = '';
+            }
+            console.log('Folder upload process finished');
+        }
+    };
+
+    const handleDownload = async (file: any) => {
+        try {
+            const filePath = `${currentPath}/${file.name}`;
+            const blob = await downloadFile(filePath);
+
+            // Create download link
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = file.name;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+        } catch (err) {
+            alert('Download failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+        }
+    };
+
+    const handleDelete = async (file: any) => {
+        if (!confirm(`Are you sure you want to delete "${file.name}"?`)) {
+            return;
+        }
+
+        try {
+            const filePath = `${currentPath}/${file.name}`;
+            await deleteFile(filePath);
+            await loadFiles();
+            alert('Deleted successfully!');
+        } catch (err) {
+            alert('Delete failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+        }
+    };
+
+    const handleExtract = async (file: any) => {
+        const deleteAfter = confirm(
+            `Extract "${file.name}"?\n\n` +
+            `Click OK to extract and DELETE the ZIP file.\n` +
+            `Click Cancel to extract and KEEP the ZIP file.`
+        );
+
+        try {
+            const filePath = `${currentPath}/${file.name}`;
+            console.log('Extracting ZIP:', filePath, 'Delete after:', deleteAfter);
+
+            const result = await extractZipFile(filePath, deleteAfter);
+
+            console.log('Extract result:', result);
+            await loadFiles();
+
+            alert(
+                `ZIP extracted successfully!\n\n` +
+                `Files extracted: ${result.filesExtracted}\n` +
+                `ZIP deleted: ${result.zipDeleted ? 'Yes' : 'No'}`
+            );
+        } catch (err) {
+            console.error('Extract error:', err);
+            alert('Extract failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+        }
+    };
+
+    const handleRename = async (file: any) => {
+        const newName = prompt(`Rename "${file.name}" to:`, file.name);
+
+        if (!newName || newName === file.name) return;
+
+        // Basic validation
+        if (!newName.trim()) {
+            alert('File name cannot be empty');
+            return;
+        }
+
+        if (newName.includes('/') || newName.includes('\\')) {
+            alert('File name cannot contain / or \\');
+            return;
+        }
+
+        try {
+            const filePath = `${currentPath}/${file.name}`;
+            console.log('Renaming:', filePath, 'to:', newName);
+
+            await renameFile(filePath, newName);
+
+            await loadFiles();
+            alert(`Renamed successfully to "${newName}"`);
+        } catch (err) {
+            console.error('Rename error:', err);
+            alert('Rename failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+        }
+    };
+
+    const handleBulkDelete = async () => {
+        if (selectedFiles.length === 0) return;
+
+        // Get selected file names
+        const selectedFileObjects = files.filter(f => selectedFiles.includes(f.id));
+        const fileNames = selectedFileObjects.map(f => f.name).join('\n- ');
+
+        const confirmed = confirm(
+            `Delete ${selectedFiles.length} selected file(s)?\n\n- ${fileNames}\n\nThis action cannot be undone.`
+        );
+
+        if (!confirmed) return;
+
+        try {
+            let successCount = 0;
+            let failCount = 0;
+
+            for (const file of selectedFileObjects) {
+                try {
+                    const filePath = `${currentPath}/${file.name}`;
+                    await deleteFile(filePath);
+                    successCount++;
+                } catch (err) {
+                    console.error(`Failed to delete ${file.name}:`, err);
+                    failCount++;
+                }
+            }
+
+            // Clear selection
+            setSelectedFiles([]);
+
+            // Reload files
+            await loadFiles();
+
+            // Show result
+            if (failCount === 0) {
+                alert(`Successfully deleted ${successCount} file(s)!`);
+            } else {
+                alert(`Deleted ${successCount} file(s).\nFailed to delete ${failCount} file(s).`);
+            }
+        } catch (err) {
+            console.error('Bulk delete error:', err);
+            alert('Bulk delete failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+        }
+    };
+
+    const handleCreateFolder = async () => {
+        const folderName = prompt('Enter folder name:');
+        if (!folderName) return;
+
+        try {
+            await createFolder(folderName, currentPath);
+            await loadFiles();
+            alert('Folder created successfully!');
+        } catch (err) {
+            alert('Create folder failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+        }
+    };
+
+    const handleEdit = async (file: any) => {
+        try {
+            const filePath = `${currentPath}/${file.name}`;
+            console.log('Opening file for edit:', filePath);
+
+            const content = await readFileContent(filePath);
+
+            setEditingFile({
+                name: file.name,
+                path: filePath,
+                content
+            });
+            setEditorOpen(true);
+        } catch (err) {
+            console.error('Failed to open file:', err);
+            alert('Failed to open file: ' + (err instanceof Error ? err.message : 'Unknown error'));
+        }
+    };
+
+    const handleEditorSave = async (content: string) => {
+        if (!editingFile) return;
+
+        try {
+            await updateFileContent(editingFile.path, content);
+
+            // Update editingFile content to prevent unsaved changes warning
+            setEditingFile({
+                ...editingFile,
+                content
+            });
+        } catch (err) {
+            throw err; // Let CodeEditorModal handle the error
+        }
+    };
+
+    const handleEditorClose = () => {
+        setEditorOpen(false);
+        setEditingFile(null);
+    };
+
+    const handleFolderClick = (folderName: string) => {
+        console.log('Folder clicked:', folderName, 'Current path:', currentPath);
+        // Navigate into folder
+        const newPath = currentPath === '/' ? `/${folderName}` : `${currentPath}/${folderName}`;
+        console.log('Navigating to:', newPath);
+        setCurrentPath(newPath);
+    };
+
+    const handleBreadcrumbClick = (index: number) => {
+        // Navigate to specific breadcrumb level
+        const pathParts = currentPath.split('/').filter(p => p);
+        const newPath = index === -1 ? '/public_html' : '/' + pathParts.slice(0, index + 1).join('/');
+        setCurrentPath(newPath);
+    };
+
+    const handleBackClick = () => {
+        // Navigate to parent folder
+        const pathParts = currentPath.split('/').filter(p => p);
+        if (pathParts.length <= 1) {
+            setCurrentPath('/public_html');
+        } else {
+            pathParts.pop();
+            setCurrentPath('/' + pathParts.join('/'));
+        }
+    };
+
+    // Build breadcrumb from current path
+    const breadcrumbs = React.useMemo(() => {
+        const parts = currentPath.split('/').filter(p => p);
+        return parts.map((part, index) => ({
+            name: part,
+            path: '/' + parts.slice(0, index + 1).join('/'),
+            index
+        }));
+    }, [currentPath]);
+
+    const handleRowClick = (fileId: number, e: React.MouseEvent) => {
+        // Toggle selection saat click row (tapi bukan double click)
+        setSelectedFiles(prev => {
+            if (prev.includes(fileId)) {
+                return prev.filter(id => id !== fileId);
+            } else {
+                return [...prev, fileId];
+            }
+        });
+    };
+
+    const handleCheckboxChange = (fileId: number, e: React.ChangeEvent<HTMLInputElement>) => {
+        e.stopPropagation();
+        setSelectedFiles(prev => {
+            if (e.target.checked) {
+                return [...prev, fileId];
+            } else {
+                return prev.filter(id => id !== fileId);
+            }
+        });
+    };
+
+    // Filter and sort files
+    const filteredFiles = React.useMemo(() => {
+        let result = files;
+
+        // Apply search filter
+        if (searchQuery.trim()) {
+            const query = searchQuery.toLowerCase();
+            result = result.filter(file =>
+                file.name.toLowerCase().includes(query)
+            );
+        }
+
+        // Apply sorting
+        result = [...result].sort((a, b) => {
+            // Always put folders first
+            if (a.type === 'folder' && b.type === 'file') return -1;
+            if (a.type === 'file' && b.type === 'folder') return 1;
+
+            let comparison = 0;
+
+            switch (sortBy) {
+                case 'name':
+                    comparison = a.name.localeCompare(b.name);
+                    break;
+                case 'size':
+                    const sizeA = a.size === '-' ? 0 : parseFloat(a.size);
+                    const sizeB = b.size === '-' ? 0 : parseFloat(b.size);
+                    comparison = sizeA - sizeB;
+                    break;
+                case 'modified':
+                    comparison = a.modified.localeCompare(b.modified);
+                    break;
+                case 'type':
+                    const extA = a.name.split('.').pop() || '';
+                    const extB = b.name.split('.').pop() || '';
+                    comparison = extA.localeCompare(extB);
+                    break;
+            }
+
+            return sortOrder === 'asc' ? comparison : -comparison;
+        });
+
+        return result;
+    }, [files, searchQuery, sortBy, sortOrder]);
+
+    const handleSort = (column: 'name' | 'size' | 'modified' | 'type') => {
+        if (sortBy === column) {
+            setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+        } else {
+            setSortBy(column);
+            setSortOrder('asc');
+        }
+    };
+
+    // Drag and Drop handlers
+    const handleDragEnter = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(true);
+    };
+
+    const handleDragLeave = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        // Only set false if leaving the main container
+        if (e.currentTarget === e.target) {
+            setIsDragging(false);
+        }
+    };
+
+    const handleDragOver = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+    };
+
+    const handleDrop = async (e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(false);
+
+        const files = Array.from(e.dataTransfer.files);
+        if (files.length === 0) return;
+
+        try {
+            setUploading(true);
+            console.log(`Drag & drop: Uploading ${files.length} file(s)`);
+
+            for (const file of files) {
+                await uploadFile(file as File, currentPath);
+            }
+
+            await loadFiles();
+            alert(`Successfully uploaded ${files.length} file(s)!`);
+        } catch (err) {
+            console.error('Drag & drop upload error:', err);
+            alert('Upload failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+        } finally {
+            setUploading(false);
+        }
+    };
 
     return (
         <ProtectedDashboard>
@@ -73,18 +603,64 @@ const FileManagerPage: React.FC = () => {
                         <p className="text-gray-600 mt-1">Browse and manage your website files</p>
                     </div>
                     <div className="flex items-center gap-3">
-                        <button className="px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-xl font-semibold hover:bg-gray-50 transition-all flex items-center gap-2">
+                        {/* File Upload Input */}
+                        <input
+                            type="file"
+                            ref={fileInputRef}
+                            onChange={handleFileSelect}
+                            multiple
+                            className="hidden"
+                        />
+                        {/* Folder Upload Input */}
+                        <input
+                            type="file"
+                            ref={folderInputRef}
+                            onChange={handleFolderSelect}
+                            {...({ webkitdirectory: '', directory: '' } as any)}
+                            className="hidden"
+                        />
+
+                        <button
+                            onClick={handleUploadClick}
+                            disabled={uploading}
+                            className="px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-xl font-semibold hover:bg-gray-50 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
                             </svg>
-                            Upload Files
+                            {uploading ? 'Uploading...' : 'Upload Files'}
                         </button>
-                        <button className="px-4 py-2 bg-gradient-to-r from-[#5865F2] to-[#4F46E5] text-white rounded-xl font-semibold hover:shadow-lg transition-all active:scale-95 flex items-center gap-2">
+                        <button
+                            onClick={handleFolderUploadClick}
+                            disabled={uploading}
+                            className="px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-xl font-semibold hover:bg-gray-50 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                            </svg>
+                            Upload Folder
+                        </button>
+                        <button
+                            onClick={handleCreateFolder}
+                            className="px-4 py-2 bg-gradient-to-r from-[#5865F2] to-[#4F46E5] text-white rounded-xl font-semibold hover:shadow-lg transition-all active:scale-95 flex items-center gap-2"
+                        >
                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                             </svg>
-                            New File/Folder
+                            New Folder
                         </button>
+                        {/* Bulk Delete Button - Only show when files are selected */}
+                        {selectedFiles.length > 0 && (
+                            <button
+                                onClick={handleBulkDelete}
+                                className="px-4 py-2 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-all active:scale-95 flex items-center gap-2"
+                            >
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                                Delete Selected ({selectedFiles.length})
+                            </button>
+                        )}
                     </div>
                 </div>
 
@@ -94,7 +670,7 @@ const FileManagerPage: React.FC = () => {
                         <div className="flex items-center justify-between">
                             <div>
                                 <p className="text-sm text-gray-600 mb-1">Total Files</p>
-                                <p className="text-2xl font-bold text-gray-900">1,247</p>
+                                <p className="text-2xl font-bold text-gray-900">{stats.totalFiles}</p>
                             </div>
                             <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
                                 <svg className="w-6 h-6 text-[#5865F2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -107,7 +683,7 @@ const FileManagerPage: React.FC = () => {
                         <div className="flex items-center justify-between">
                             <div>
                                 <p className="text-sm text-gray-600 mb-1">Total Folders</p>
-                                <p className="text-2xl font-bold text-gray-900">87</p>
+                                <p className="text-2xl font-bold text-gray-900">{stats.totalFolders}</p>
                             </div>
                             <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
                                 <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -120,7 +696,7 @@ const FileManagerPage: React.FC = () => {
                         <div className="flex items-center justify-between">
                             <div>
                                 <p className="text-sm text-gray-600 mb-1">Storage Used</p>
-                                <p className="text-2xl font-bold text-gray-900">2.4 GB</p>
+                                <p className="text-2xl font-bold text-gray-900">{stats.storageUsed}</p>
                             </div>
                             <div className="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center">
                                 <svg className="w-6 h-6 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -133,7 +709,7 @@ const FileManagerPage: React.FC = () => {
                         <div className="flex items-center justify-between">
                             <div>
                                 <p className="text-sm text-gray-600 mb-1">Storage Quota</p>
-                                <p className="text-2xl font-bold text-gray-900">10 GB</p>
+                                <p className="text-2xl font-bold text-gray-900">{stats.storageQuota}</p>
                             </div>
                             <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
                                 <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -149,15 +725,54 @@ const FileManagerPage: React.FC = () => {
                     {/* Breadcrumb & Toolbar */}
                     <div className="p-6 border-b border-gray-200">
                         <div className="flex items-center justify-between mb-4">
-                            <div className="flex items-center gap-2 text-sm">
-                                <button className="text-[#5865F2] hover:underline font-medium">Home</button>
-                                <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
-                                </svg>
-                                <span className="text-gray-900 font-medium">public_html</span>
-                            </div>
+                            {/* Breadcrumb Navigation */}
                             <div className="flex items-center gap-2">
-                                <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors" title="List View">
+                                {/* Back Button */}
+                                {currentPath !== '/public_html' && (
+                                    <button
+                                        onClick={handleBackClick}
+                                        className="p-2 hover:bg-gray-100 rounded-lg transition-colors mr-2"
+                                        title="Back"
+                                    >
+                                        <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
+                                        </svg>
+                                    </button>
+                                )}
+
+                                {/* Breadcrumb Links */}
+                                <div className="flex items-center gap-2 text-sm">
+                                    <button
+                                        onClick={() => handleBreadcrumbClick(-1)}
+                                        className="text-[#5865F2] hover:underline font-medium transition-colors"
+                                    >
+                                        <i className="fas fa-home mr-1"></i>
+                                        Home
+                                    </button>
+
+                                    {breadcrumbs.map((crumb, idx) => (
+                                        <React.Fragment key={idx}>
+                                            <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
+                                            </svg>
+                                            {idx === breadcrumbs.length - 1 ? (
+                                                <span className="text-gray-900 font-medium">{crumb.name}</span>
+                                            ) : (
+                                                <button
+                                                    onClick={() => handleBreadcrumbClick(crumb.index)}
+                                                    className="text-[#5865F2] hover:underline font-medium transition-colors"
+                                                >
+                                                    {crumb.name}
+                                                </button>
+                                            )}
+                                        </React.Fragment>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* View Toggle */}
+                            <div className="flex items-center gap-2">
+                                <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors bg-gray-100" title="List View">
                                     <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 10h16M4 14h16M4 18h16" />
                                     </svg>
@@ -175,11 +790,23 @@ const FileManagerPage: React.FC = () => {
                                 <input
                                     type="text"
                                     placeholder="Search files..."
-                                    className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    className="w-full pl-10 pr-10 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                                 />
                                 <svg className="w-5 h-5 text-gray-400 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                                 </svg>
+                                {searchQuery && (
+                                    <button
+                                        onClick={() => setSearchQuery('')}
+                                        className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600"
+                                    >
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                                        </svg>
+                                    </button>
+                                )}
                             </div>
                             <button className="px-4 py-2 bg-gray-50 border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-100 transition-colors flex items-center gap-2">
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -191,43 +818,89 @@ const FileManagerPage: React.FC = () => {
                     </div>
 
                     {/* Files List */}
-                    <div className="overflow-x-auto">
+                    <div
+                        className="overflow-x-auto relative"
+                        onDragEnter={handleDragEnter}
+                        onDragLeave={handleDragLeave}
+                        onDragOver={handleDragOver}
+                        onDrop={handleDrop}
+                    >
+                        {/* Drag & Drop Overlay */}
+                        {isDragging && (
+                            <div className="absolute inset-0 bg-blue-500 bg-opacity-10 border-4 border-dashed border-blue-500 rounded-xl flex items-center justify-center z-50 pointer-events-none">
+                                <div className="bg-white px-8 py-6 rounded-xl shadow-2xl">
+                                    <svg className="w-16 h-16 text-blue-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                                    </svg>
+                                    <p className="text-xl font-bold text-gray-900">Drop files here</p>
+                                    <p className="text-sm text-gray-600 mt-2">Release to upload files</p>
+                                </div>
+                            </div>
+                        )}
+
                         <table className="w-full">
                             <thead className="bg-gray-50 border-b border-gray-200">
                                 <tr>
                                     <th className="px-6 py-3 text-left">
                                         <input type="checkbox" className="rounded border-gray-300" />
                                     </th>
-                                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Name</th>
-                                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Size</th>
-                                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Modified</th>
+                                    <th
+                                        onClick={() => handleSort('name')}
+                                        className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase cursor-pointer hover:bg-gray-100 transition-colors"
+                                    >
+                                        Name {sortBy === 'name' && (sortOrder === 'asc' ? '↑' : '↓')}
+                                    </th>
+                                    <th
+                                        onClick={() => handleSort('size')}
+                                        className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase cursor-pointer hover:bg-gray-100 transition-colors"
+                                    >
+                                        Size {sortBy === 'size' && (sortOrder === 'asc' ? '↑' : '↓')}
+                                    </th>
+                                    <th
+                                        onClick={() => handleSort('modified')}
+                                        className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase cursor-pointer hover:bg-gray-100 transition-colors"
+                                    >
+                                        Modified {sortBy === 'modified' && (sortOrder === 'asc' ? '↑' : '↓')}
+                                    </th>
                                     <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Permissions</th>
                                     <th className="px-6 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Actions</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200">
-                                {files.map((file) => (
-                                    <tr key={file.id} className="hover:bg-gray-50 transition-colors">
-                                        <td className="px-6 py-4">
-                                            <input type="checkbox" className="rounded border-gray-300" />
+                                {filteredFiles.map((file) => (
+                                    <tr
+                                        key={file.id}
+                                        className={`transition-colors cursor-pointer ${selectedFiles.includes(file.id) ? 'bg-blue-50' : 'hover:bg-gray-50'
+                                            }`}
+                                        onClick={(e) => handleRowClick(file.id, e)}
+                                        onDoubleClick={() => {
+                                            if (file.type === 'folder') {
+                                                console.log('Row double-clicked for folder:', file.name);
+                                                handleFolderClick(file.name);
+                                            }
+                                        }}
+                                    >
+                                        <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
+                                            <input
+                                                type="checkbox"
+                                                className="rounded border-gray-300"
+                                                checked={selectedFiles.includes(file.id)}
+                                                onChange={(e) => handleCheckboxChange(file.id, e)}
+                                            />
                                         </td>
                                         <td className="px-6 py-4">
                                             <div className="flex items-center gap-3">
-                                                <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${file.type === 'folder'
-                                                        ? 'bg-blue-100 text-[#5865F2]'
-                                                        : 'bg-gray-100 text-gray-600'
-                                                    }`}>
-                                                    {file.type === 'folder' ? (
-                                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-                                                        </svg>
-                                                    ) : (
-                                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                                                        </svg>
-                                                    )}
-                                                </div>
-                                                <span className="font-medium text-gray-900">{file.name}</span>
+                                                {(() => {
+                                                    const fileIcon = getFileIcon(file.name, file.type);
+                                                    return (
+                                                        <div className="w-10 h-10 flex items-center justify-center">
+                                                            <i className={`${fileIcon.iconClass} ${fileIcon.textColor} text-4xl`}></i>
+                                                        </div>
+                                                    );
+                                                })()}
+                                                <span className="font-medium text-gray-900">
+                                                    {file.name}
+                                                </span>
                                             </div>
                                         </td>
                                         <td className="px-6 py-4 text-sm text-gray-600">{file.size}</td>
@@ -239,17 +912,58 @@ const FileManagerPage: React.FC = () => {
                                         </td>
                                         <td className="px-6 py-4 text-right">
                                             <div className="flex items-center justify-end gap-2">
-                                                <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors" title="Download">
-                                                    <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                                {file.type === 'file' && (
+                                                    <button
+                                                        onClick={() => handleDownload(file)}
+                                                        className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                                                        title="Download"
+                                                    >
+                                                        <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                                        </svg>
+                                                    </button>
+                                                )}
+                                                {file.type === 'file' && (() => {
+                                                    const editableExts = ['html', 'htm', 'css', 'scss', 'less', 'js', 'jsx', 'ts', 'tsx', 'json', 'xml', 'php', 'py', 'rb', 'java', 'cpp', 'c', 'go', 'rs', 'sh', 'bash', 'yaml', 'yml', 'toml', 'ini', 'conf', 'md', 'sql', 'txt', 'log', 'env'];
+                                                    const ext = file.name.split('.').pop()?.toLowerCase();
+                                                    return ext && editableExts.includes(ext);
+                                                })() && (
+                                                        <button
+                                                            onClick={() => handleEdit(file)}
+                                                            className="p-2 hover:bg-blue-50 rounded-lg transition-colors"
+                                                            title="Edit File"
+                                                        >
+                                                            <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                                            </svg>
+                                                        </button>
+                                                    )}
+                                                {/* Rename Button - for both files and folders */}
+                                                <button
+                                                    onClick={() => handleRename(file)}
+                                                    className="p-2 hover:bg-yellow-50 rounded-lg transition-colors"
+                                                    title="Rename"
+                                                >
+                                                    <svg className="w-5 h-5 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                                                     </svg>
                                                 </button>
-                                                <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors" title="Edit">
-                                                    <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                                                    </svg>
-                                                </button>
-                                                <button className="p-2 hover:bg-red-50 rounded-lg transition-colors" title="Delete">
+                                                {file.type === 'file' && file.name.toLowerCase().endsWith('.zip') && (
+                                                    <button
+                                                        onClick={() => handleExtract(file)}
+                                                        className="p-2 hover:bg-green-50 rounded-lg transition-colors"
+                                                        title="Extract ZIP"
+                                                    >
+                                                        <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" />
+                                                        </svg>
+                                                    </button>
+                                                )}
+                                                <button
+                                                    onClick={() => handleDelete(file)}
+                                                    className="p-2 hover:bg-red-50 rounded-lg transition-colors"
+                                                    title="Delete"
+                                                >
                                                     <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                                                     </svg>
@@ -306,6 +1020,18 @@ const FileManagerPage: React.FC = () => {
                     </div>
                 </div>
             </div>
+
+            {/* Code Editor Modal */}
+            {editingFile && (
+                <CodeEditorModal
+                    isOpen={editorOpen}
+                    onClose={handleEditorClose}
+                    fileName={editingFile.name}
+                    filePath={editingFile.path}
+                    initialContent={editingFile.content}
+                    onSave={handleEditorSave}
+                />
+            )}
         </ProtectedDashboard>
     );
 };
