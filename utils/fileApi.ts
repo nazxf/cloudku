@@ -258,3 +258,58 @@ export const renameFile = async (oldPath: string, newName: string): Promise<any>
 
     return response.json();
 };
+
+/**
+ * Copy files or folders
+ */
+export const copyFiles = async (sourcePaths: string[], targetPath: string): Promise<any> => {
+    const token = getToken();
+
+    if (!token) {
+        throw new Error('Not authenticated. Please login first.');
+    }
+
+    const response = await fetch(`${API_URL}/api/files/copy`, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ sourcePaths, targetPath }),
+    });
+
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({ message: 'Failed to copy files' }));
+        throw new Error(error.message || 'Failed to copy files');
+    }
+
+    return response.json();
+};
+
+/**
+ * Move files or folders
+ */
+export const moveFiles = async (sourcePaths: string[], targetPath: string): Promise<any> => {
+    const token = getToken();
+
+    if (!token) {
+        throw new Error('Not authenticated. Please login first.');
+    }
+
+    const response = await fetch(`${API_URL}/api/files/move`, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ sourcePaths, targetPath }),
+    });
+
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({ message: 'Failed to move files' }));
+        throw new Error(error.message || 'Failed to move files');
+    }
+
+    return response.json();
+};
+
