@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Editor from '@monaco-editor/react';
+import toast from 'react-hot-toast';
+import ConfirmationModal from './ConfirmationModal';
 
 interface CodeEditorModalProps {
     isOpen: boolean;
@@ -76,37 +78,120 @@ const CodeEditorModal: React.FC<CodeEditorModalProps> = ({
     const [hasChanges, setHasChanges] = useState(false);
     const language = getLanguageFromFileName(fileName);
 
+    const [confirmConfig, setConfirmConfig] = useState<{
+        show: boolean;
+        title: string;
+        message: string;
+        type: 'info' | 'warning' | 'danger';
+        onConfirm: () => void;
+    }>({
+        show: false,
+        title: '',
+        message: '',
+        type: 'info',
+        onConfirm: () => { }
+    });
+
+    // Refs for handlers to avoid stale closures in effects/commands
+    const handleSaveRef = React.useRef<() => Promise<void>>(async () => { });
+    const handleCloseRef = React.useRef<() => void>(() => { });
+
+    // Draft key for localStorage
+    const draftKey = `draft_${filePath}`;
+
+    // Effect: Initialize content & Check for drafts
     useEffect(() => {
         setContent(initialContent);
         setHasChanges(false);
-    }, [initialContent, isOpen]);
+
+        if (isOpen) {
+            const savedDraft = localStorage.getItem(draftKey);
+            if (savedDraft && savedDraft !== initialContent) {
+                setConfirmConfig({
+                    show: true,
+                    title: 'Unsaved Draft Found',
+                    message: 'We found an unsaved draft for this file. Do you want to restore it?',
+                    type: 'info',
+                    onConfirm: () => {
+                        setContent(savedDraft);
+                        setHasChanges(true);
+                        setConfirmConfig(prev => ({ ...prev, show: false }));
+                        toast.success('Draft restored!');
+                    }
+                });
+            }
+        }
+    }, [initialContent, isOpen, filePath, draftKey]); // Added draftKey to dependencies
+
+    // Effect: Auto-save draft to localStorage
+    useEffect(() => {
+        if (hasChanges) {
+            const timer = setTimeout(() => {
+                localStorage.setItem(draftKey, content);
+            }, 1000); // Debounce 1s
+            return () => clearTimeout(timer);
+        } else {
+            localStorage.removeItem(draftKey);
+        }
+    }, [content, hasChanges, draftKey]);
+
+    // Functions
+    const handleEditorChange = (value: string | undefined) => {
+        setContent(value || '');
+        setHasChanges(value !== initialContent);
+    };
+
+    const handleClose = () => {
+        if (hasChanges) {
+            setConfirmConfig({
+                show: true,
+                title: 'Unsaved Changes',
+                message: 'You have unsaved changes. Do you really want to close? Your changes will be stored in draft locally.',
+                type: 'warning',
+                onConfirm: () => {
+                    setConfirmConfig(prev => ({ ...prev, show: false }));
+                    onClose();
+                }
+            });
+            return;
+        }
+        onClose();
+    };
 
     const handleSave = async () => {
         try {
             setSaving(true);
+            const toastId = toast.loading('Saving file...', { position: 'bottom-right' });
             await onSave(content);
             setHasChanges(false);
-            alert('File saved successfully!');
+            localStorage.removeItem(draftKey);
+            toast.success('File saved successfully!', { id: toastId, position: 'bottom-right' });
         } catch (error) {
-            alert('Failed to save: ' + (error instanceof Error ? error.message : 'Unknown error'));
+            toast.error('Failed to save: ' + (error instanceof Error ? error.message : 'Unknown error'), { position: 'bottom-right' });
         } finally {
             setSaving(false);
         }
     };
 
-    const handleClose = () => {
-        if (hasChanges) {
-            if (!confirm('You have unsaved changes. Are you sure you want to close?')) {
-                return;
-            }
-        }
-        onClose();
-    };
+    // Update Refs
+    useEffect(() => {
+        // Cast to any to avoid strict type mismatch during assignment if signature varies slightly
+        handleSaveRef.current = handleSave;
+        handleCloseRef.current = handleClose;
+    }, [handleSave, handleClose]);
 
-    const handleEditorChange = (value: string | undefined) => {
-        setContent(value || '');
-        setHasChanges(value !== initialContent);
-    };
+    // Global ESC key handler
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape' && isOpen) {
+                if (confirmConfig.show) return; // Don't close if confirmation is showing
+                handleCloseRef.current(); // Use ref to avoid closure staleness
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [isOpen, confirmConfig.show]);
 
     if (!isOpen) return null;
 
@@ -119,8 +204,8 @@ const CodeEditorModal: React.FC<CodeEditorModalProps> = ({
             />
 
             {/* Modal */}
-            <div className="absolute inset-4 bg-white rounded-2xl shadow-2xl flex flex-col">
-                {/* Header */}
+            <div className="absolute inset-4 bg-white rounded-2xl shadow-2xl flex flex-col animate-scaleIn">
+                {/* Header - SAME AS BEFORE */}
                 <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
                     <div className="flex items-center gap-3">
                         <div className="w-10 h-10 bg-gradient-to-r from-[#5865F2] to-[#4F46E5] rounded-lg flex items-center justify-center">
@@ -133,7 +218,7 @@ const CodeEditorModal: React.FC<CodeEditorModalProps> = ({
                             <p className="text-sm text-gray-500">{filePath}</p>
                         </div>
                         {hasChanges && (
-                            <span className="px-2 py-1 bg-orange-100 text-orange-700 text-xs font-semibold rounded">
+                            <span className="px-2 py-1 bg-orange-100 text-orange-700 text-xs font-semibold rounded animate-pulse">
                                 Unsaved
                             </span>
                         )}
@@ -193,16 +278,21 @@ const CodeEditorModal: React.FC<CodeEditorModalProps> = ({
                             formatOnPaste: true,
                             formatOnType: true,
                         }}
-                        onMount={(editor) => {
-                            // Keyboard shortcut Ctrl+S to save
-                            editor.addCommand(2048 | 49, () => {  // 2048 = Ctrl, 49 = S
-                                if (hasChanges) handleSave();
+                        onMount={(editor, monaco) => {
+                            // Register Save Command (Ctrl+S)
+                            editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+                                handleSaveRef.current();
+                            });
+
+                            // Register Escape Command (ESC) inside editor
+                            editor.addCommand(monaco.KeyCode.Escape, () => {
+                                handleCloseRef.current();
                             });
                         }}
                     />
                 </div>
 
-                {/* Footer */}
+                {/* Footer - SAME AS BEFORE */}
                 <div className="flex items-center justify-between px-6 py-3 border-t border-gray-200 bg-gray-50">
                     <div className="flex items-center gap-4 text-sm text-gray-600">
                         <span>Lines: {content.split('\n').length}</span>
@@ -218,6 +308,16 @@ const CodeEditorModal: React.FC<CodeEditorModalProps> = ({
                     </div>
                 </div>
             </div>
+
+            <ConfirmationModal
+                show={confirmConfig.show}
+                title={confirmConfig.title}
+                message={confirmConfig.message}
+                type={confirmConfig.type}
+                onConfirm={confirmConfig.onConfirm}
+                onCancel={() => setConfirmConfig(prev => ({ ...prev, show: false }))}
+                confirmText={confirmConfig.type === 'info' ? 'Restore' : 'Close Anyway'}
+            />
         </div>
     );
 };

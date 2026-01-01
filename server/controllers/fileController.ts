@@ -3,6 +3,10 @@ import fs from 'fs/promises';
 import path from 'path';
 import { AuthRequest } from '../middleware/auth';
 import AdmZip from 'adm-zip';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
 
 // Base directory untuk user files (dalam production, setiap user punya folder sendiri)
 const getUserFilesPath = (userId: string) => {
@@ -51,7 +55,7 @@ export const listFiles = async (req: AuthRequest, res: Response) => {
                     type: item.isDirectory() ? 'folder' : 'file',
                     size: item.isDirectory() ? '-' : formatBytes(stats.size),
                     modified: formatDate(stats.mtime),
-                    permissions: '644' // In real scenario, get from stats
+                    permissions: (stats.mode & 0o777).toString(8)
                 };
             })
         );
@@ -77,10 +81,7 @@ export const listFiles = async (req: AuthRequest, res: Response) => {
 
 // Upload file
 export const uploadFile = async (req: AuthRequest, res: Response) => {
-    console.log('=== UPLOAD FILE REQUEST START ===');
-    console.log('Request headers:', req.headers);
-    console.log('Request body:', req.body);
-    console.log('Has file:', !!req.file);
+
 
     try {
         const userId = req.user?.id?.toString() || 'default';
@@ -205,7 +206,7 @@ export const deleteFile = async (req: AuthRequest, res: Response) => {
         const stats = await fs.stat(fullPath);
 
         if (stats.isDirectory()) {
-            await fs.rmdir(fullPath, { recursive: true });
+            await fs.rm(fullPath, { recursive: true, force: true });
         } else {
             await fs.unlink(fullPath);
         }
@@ -618,3 +619,113 @@ const getDirectoryStats = async (dirPath: string): Promise<{ fileCount: number, 
     return { fileCount, folderCount, totalSize };
 };
 
+// Git Clone
+export const gitClone = async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = req.user?.id?.toString() || 'default';
+        const { repoUrl, targetPath = '/public_html' } = req.body;
+
+        if (!repoUrl) {
+            return res.status(400).json({ message: 'Repository URL is required' });
+        }
+
+        // Validate Git URL
+        const gitUrlPattern = /^(https?:\/\/)?([\w\-]+@)?[\w\-]+(\.[\w\-]+)+(:\d+)?(\/[\w\-\.~%!$&'()*+,;=:@\/]*)?\.git$/i;
+        const isValidGitUrl = gitUrlPattern.test(repoUrl) ||
+            repoUrl.includes('github.com') ||
+            repoUrl.includes('gitlab.com') ||
+            repoUrl.includes('bitbucket.org');
+
+        if (!isValidGitUrl) {
+            return res.status(400).json({ message: 'Invalid Git repository URL' });
+        }
+
+        await ensureUserDirectory(userId);
+        const fullPath = path.join(getUserFilesPath(userId), targetPath);
+
+        // Security check
+        const userBasePath = getUserFilesPath(userId);
+        if (!fullPath.startsWith(userBasePath)) {
+            return res.status(403).json({ message: 'Access denied' });
+        }
+
+        // Ensure target directory exists
+        await fs.mkdir(fullPath, { recursive: true });
+
+        // Extract repo name from URL for folder name
+        const repoName = repoUrl.split('/').pop()?.replace('.git', '') || 'repo';
+        const clonePath = path.join(fullPath, repoName);
+
+        // Check if folder already exists
+        try {
+            await fs.access(clonePath);
+            return res.status(400).json({ message: `Folder "${repoName}" already exists` });
+        } catch {
+            // Folder doesn't exist, proceed
+        }
+
+        // Execute git clone
+        console.log(`Cloning ${repoUrl} to ${clonePath}...`);
+
+        const { stdout, stderr } = await execAsync(`git clone "${repoUrl}" "${clonePath}"`, {
+            cwd: fullPath,
+            timeout: 300000 // 5 minutes timeout
+        });
+
+        console.log('Git clone output:', stdout);
+        if (stderr && !stderr.includes('Cloning into')) {
+            console.error('Git clone stderr:', stderr);
+        }
+
+        res.json({
+            message: 'Repository cloned successfully',
+            repoName,
+            path: path.join(targetPath, repoName)
+        });
+    } catch (error: any) {
+        console.error('Git clone error:', error);
+
+        let errorMessage = 'Failed to clone repository';
+        if (error.message.includes('not found') || error.message.includes('404')) {
+            errorMessage = 'Repository not found or is private';
+        } else if (error.message.includes('timeout')) {
+            errorMessage = 'Clone operation timed out';
+        } else if (error.message.includes('git')) {
+            errorMessage = 'Git is not installed on the server';
+        }
+
+        res.status(500).json({ message: errorMessage, error: error.message });
+    }
+};
+
+// Change File Permissions
+export const changePermissions = async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = req.user?.id?.toString() || 'default';
+        const { path: filePath, mode } = req.body;
+
+        if (!filePath || !mode) {
+            return res.status(400).json({ message: 'Path and mode are required' });
+        }
+
+        const userBasePath = getUserFilesPath(userId);
+        const fullPath = path.join(userBasePath, filePath);
+
+        // Security check
+        if (!fullPath.startsWith(userBasePath)) {
+            return res.status(403).json({ message: 'Access denied' });
+        }
+
+        const modeNum = parseInt(mode, 8);
+        if (isNaN(modeNum)) {
+            return res.status(400).json({ message: 'Invalid mode format' });
+        }
+
+        await fs.chmod(fullPath, modeNum);
+
+        res.json({ message: `Permissions changed to ${mode}` });
+    } catch (error) {
+        console.error('CHMOD error:', error);
+        res.status(500).json({ message: 'Failed to change permissions', error: (error as Error).message });
+    }
+};

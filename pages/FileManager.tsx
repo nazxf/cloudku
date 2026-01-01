@@ -1,17 +1,18 @@
 import React, { useState } from 'react';
 import ProtectedDashboard from '../components/ProtectedDashboard';
-import { listFiles, uploadFile, downloadFile, deleteFile, createFolder, extractZipFile, renameFile, copyFiles, moveFiles } from '../utils/fileApi';
+import { listFiles, uploadFile, downloadFile, deleteFile, createFolder, extractZipFile, renameFile, copyFiles, moveFiles, gitClone, changePermissions } from '../utils/fileApi';
 import { readFileContent, updateFileContent } from '../utils/fileApi';
-import CodeEditorModal from '../components/CodeEditorModal';
-import MediaPreviewModal from '../components/MediaPreviewModal';
 import toast, { Toaster } from 'react-hot-toast';
-import AdvancedFilterPanel from '../components/AdvancedFilterPanel';
 import UploadProgressBar from '../components/UploadProgressBar';
-import { getFileIcon, isImageFile, isVideoFile, isEditableFile, isZipFile, validateFileName } from '../features/file-manager/utils/file-helpers';
+import ConfirmationModal from '../components/ConfirmationModal';
+import InputModal from '../components/InputModal';
+import ExtractModal from '../components/ExtractModal';
+import PermissionsModal from '../components/PermissionsModal';
+import { isImageFile, isVideoFile, validateFileName } from '../features/file-manager/utils/file-helpers';
 import { buildMediaList, findMediaIndex } from '../features/file-manager/utils/media-helpers';
 import { buildBreadcrumbs, navigateToBreadcrumb, navigateToParent, navigateToFolder, buildFilePath } from '../features/file-manager/utils/path-helpers';
 import { DEFAULT_PATH, DEFAULT_STATS } from '../features/file-manager/constants/default-config';
-import type { FileItem, FileStats, ContextMenuState, ClipboardState, MediaPreviewState, UploadProgressState, EditingFileState, SortBy, SortOrder, ViewMode } from '../features/file-manager/types';
+import type { SortBy, SortOrder, ViewMode } from '../features/file-manager/types';
 import FileManagerHeader from '../components/file-manager/FileManagerHeader';
 import FileManagerStats from '../components/file-manager/FileManagerStats';
 import FileManagerToolbar from '../components/file-manager/FileManagerToolbar';
@@ -64,8 +65,65 @@ const FileManagerPage: React.FC = () => {
     const [showFilterPanel, setShowFilterPanel] = useState(false);
 
 
+
     // Upload Progress State
     const [uploadProgress, setUploadProgress] = useState<{ fileName: string, progress: number } | null>(null);
+
+    // Don't Show Again Preference (persisted in localStorage)
+    const [dontShowDeleteConfirm, setDontShowDeleteConfirm] = useState(() => {
+        return localStorage.getItem('dontShowDeleteConfirm') === 'true';
+    });
+
+    // Confirmation Modal State
+    const [confirmModal, setConfirmModal] = useState<{
+        show: boolean;
+        title: string;
+        message: string;
+        type?: 'info' | 'warning' | 'danger' | 'success';
+        onConfirm: () => void;
+    }>({
+        show: false,
+        title: '',
+        message: '',
+        onConfirm: () => { }
+    });
+
+    // Input Modal State
+    const [inputModal, setInputModal] = useState<{
+        show: boolean;
+        title: string;
+        placeholder?: string;
+        defaultValue?: string;
+        confirmText?: string;
+        icon?: React.ReactNode;
+        onConfirm: (value: string) => void;
+    }>({
+        show: false,
+        title: '',
+        onConfirm: () => { }
+    });
+
+    const [extractModal, setExtractModal] = useState<{
+        show: boolean;
+        fileName: string;
+        filePath: string;
+    }>({
+        show: false,
+        fileName: '',
+        filePath: ''
+    });
+
+    const [permissionsModal, setPermissionsModal] = useState<{
+        show: boolean;
+        fileName: string;
+        currentMode: string;
+        path: string;
+    }>({
+        show: false,
+        fileName: '',
+        currentMode: '644',
+        path: ''
+    });
 
     const fileInputRef = React.useRef<HTMLInputElement>(null);
     const folderInputRef = React.useRef<HTMLInputElement>(null);
@@ -254,132 +312,234 @@ const FileManagerPage: React.FC = () => {
     };
 
     const handleDelete = async (file: any) => {
-        if (!confirm(`Are you sure you want to delete "${file.name}"?`)) {
+        // Helper function to perform delete
+        const performDelete = async () => {
+            try {
+                const filePath = buildFilePath(currentPath, file.name);
+                await deleteFile(filePath);
+                await loadFiles();
+                toast.success('Deleted successfully! 🗑️');
+            } catch (err) {
+                toast.error('Delete failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+            }
+        };
+
+        // If user chose "don't show again", delete directly
+        if (dontShowDeleteConfirm) {
+            await performDelete();
             return;
         }
 
-        try {
-            const filePath = buildFilePath(currentPath, file.name);
-            await deleteFile(filePath);
-            await loadFiles();
-            toast.success('Deleted successfully! 🗑️');
-        } catch (err) {
-            toast.error('Delete failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
-        }
+        // Otherwise, show confirmation modal
+        setConfirmModal({
+            show: true,
+            title: `Delete "${file.name}"?`,
+            message: 'This action cannot be undone.',
+            type: 'danger',
+            onConfirm: performDelete
+        });
     };
 
-    const handleExtract = async (file: any) => {
-        const deleteAfter = confirm(
-            `Extract "${file.name}"?\n\n` +
-            `Click OK to extract and DELETE the ZIP file.\n` +
-            `Click Cancel to extract and KEEP the ZIP file.`
-        );
+    const handlePermissions = (file: any) => {
+        setPermissionsModal({
+            show: true,
+            fileName: file.name,
+            currentMode: file.permissions || '644',
+            path: buildFilePath(currentPath, file.name)
+        });
+    };
 
-        try {
-            const filePath = buildFilePath(currentPath, file.name);
-            console.log('Extracting ZIP:', filePath, 'Delete after:', deleteAfter);
-
-            const result = await extractZipFile(filePath, deleteAfter);
-
-            console.log('Extract result:', result);
-            await loadFiles();
-
-            alert(
-                `ZIP extracted successfully!\n\n` +
-                `Files extracted: ${result.filesExtracted}\n` +
-                `ZIP deleted: ${result.zipDeleted ? 'Yes' : 'No'}`
-            );
-        } catch (err) {
-            console.error('Extract error:', err);
-            toast.error('Extract failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
-        }
+    const handleExtract = (file: any) => {
+        setExtractModal({
+            show: true,
+            fileName: file.name,
+            filePath: buildFilePath(currentPath, file.name)
+        });
     };
 
     const handleRename = async (file: any) => {
-        const newName = prompt(`Rename "${file.name}" to:`, file.name);
-        if (!newName || newName === file.name) return;
+        setInputModal({
+            show: true,
+            title: `Rename "${file.name}"`,
+            placeholder: file.name,
+            defaultValue: file.name,
+            confirmText: 'Rename',
+            icon: (
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+            ),
+            onConfirm: async (newName) => {
+                if (newName === file.name) {
+                    setInputModal({ ...inputModal, show: false });
+                    return;
+                }
 
-        // Gunakan validateFileName helper
-        const validationError = validateFileName(newName);
-        if (validationError) {
-            toast.error(validationError);
-            return;
-        }
+                // Gunakan validateFileName helper
+                const validationError = validateFileName(newName);
+                if (validationError) {
+                    toast.error(validationError);
+                    // Keep modal open on error? Or re-open?
+                    // Usually we might want to keep it open, but for now let's simple re-set it or just close.
+                    // If we want to keep it open with error, we need error state in InputModal. 
+                    // Since InputModal doesn't have error state, let's close and show toast.
+                    setInputModal({ ...inputModal, show: false });
+                    return;
+                }
 
-        try {
-            const filePath = buildFilePath(currentPath, file.name);
-            await renameFile(filePath, newName);
-            await loadFiles();
-            toast.success(`Renamed successfully to "${newName}" ✏️`);
-        } catch (err) {
-            console.error('Rename error:', err);
-            toast.error('Rename failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
-        }
+                try {
+                    const filePath = buildFilePath(currentPath, file.name);
+                    await renameFile(filePath, newName);
+                    await loadFiles();
+                    toast.success(`Renamed successfully to "${newName}" ✏️`);
+                } catch (err) {
+                    console.error('Rename error:', err);
+                    toast.error('Rename failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+                }
+
+                setInputModal({ ...inputModal, show: false });
+            }
+        });
     };
     const handleBulkDelete = async () => {
         if (selectedFiles.length === 0) return;
 
         // Get selected file names
         const selectedFileObjects = files.filter(f => selectedFiles.includes(f.id));
-        const fileNames = selectedFileObjects.map(f => f.name).join('\n- ');
+        const fileNames = selectedFileObjects.map(f => f.name).join('\n• ');
 
-        const confirmed = confirm(
-            `Delete ${selectedFiles.length} selected file(s)?\n\n- ${fileNames}\n\nThis action cannot be undone.`
-        );
-
-        if (!confirmed) return;
-
-        try {
-            let successCount = 0;
-            let failCount = 0;
-
-            for (const file of selectedFileObjects) {
+        // Show confirmation modal
+        setConfirmModal({
+            show: true,
+            title: `Delete ${selectedFiles.length} selected file(s)?`,
+            message: `${fileNames}\n\nThis action cannot be undone.`,
+            type: 'danger',
+            onConfirm: async () => {
                 try {
-                    const filePath = buildFilePath(currentPath, file.name);
-                    await deleteFile(filePath);
-                    successCount++;
+                    let successCount = 0;
+                    let failCount = 0;
+
+                    for (const file of selectedFileObjects) {
+                        try {
+                            const filePath = buildFilePath(currentPath, file.name);
+                            await deleteFile(filePath);
+                            successCount++;
+                        } catch (err) {
+                            console.error(`Failed to delete ${file.name}:`, err);
+                            failCount++;
+                        }
+                    }
+
+                    // Clear selection
+                    setSelectedFiles([]);
+
+                    // Reload files
+                    await loadFiles();
+
+                    // Show result
+                    if (failCount === 0) {
+                        toast.success(`Successfully deleted ${successCount} file(s)! 🗑️`);
+                    } else {
+                        toast.error(`Deleted ${successCount} file(s).\nFailed to delete ${failCount} file(s).`);
+                    }
                 } catch (err) {
-                    console.error(`Failed to delete ${file.name}:`, err);
-                    failCount++;
+                    console.error('Bulk delete error:', err);
+                    toast.error('Bulk delete failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
                 }
             }
-
-            // Clear selection
-            setSelectedFiles([]);
-
-            // Reload files
-            await loadFiles();
-
-            // Show result
-            if (failCount === 0) {
-                toast.success(`Successfully deleted ${successCount} file(s)! 🗑️`);
-            } else {
-                toast.error(`Deleted ${successCount} file(s).\nFailed to delete ${failCount} file(s).`);
-            }
-        } catch (err) {
-            console.error('Bulk delete error:', err);
-            toast.error('Bulk delete failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
-        }
+        });
     };
 
     const handleCreateFolder = async () => {
-        const folderName = prompt('Enter folder name:');
-        if (!folderName) return;
+        setInputModal({
+            show: true,
+            title: 'Enter folder name:',
+            placeholder: 'my-folder',
+            onConfirm: async (folderName) => {
+                const validationError = validateFileName(folderName);
+                if (validationError) {
+                    toast.error(validationError);
+                    setInputModal({ ...inputModal, show: false });
+                    return;
+                }
 
+                try {
+                    await createFolder(folderName, currentPath);
+                    await loadFiles();
+                    toast.success('Folder created successfully! 📁');
+                } catch (err) {
+                    toast.error('Create folder failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+                }
 
-        const validationError = validateFileName(folderName);
-        if (validationError) {
-            toast.error(validationError);
-            return;
-        }
+                setInputModal({ ...inputModal, show: false });
+            }
+        });
+    };
 
-        try {
-            await createFolder(folderName, currentPath);
-            await loadFiles();
-            toast.success('Folder created successfully! 📁');
-        } catch (err) {
-            toast.error('Create folder failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
-        }
+    const handleGitClone = async () => {
+        setInputModal({
+            show: true,
+            title: 'Enter Git Repository URL:',
+            placeholder: 'https://github.com/username/repo.git',
+            onConfirm: async (repoUrl) => {
+                // Basic validation
+                if (!repoUrl.trim()) return;
+
+                const toastId = toast.loading(
+                    <div className="flex flex-col gap-1">
+                        <span className="font-semibold text-sm">Cloning Repository</span>
+                        <span className="text-xs text-gray-300">Syncing files from remote...</span>
+                    </div>,
+                    {
+                        style: {
+                            background: '#1F2937', // Gray-800
+                            color: '#F3F4F6', // Gray-100
+                            border: '1px solid #374151', // Gray-700
+                            borderRadius: '12px',
+                            minWidth: '240px',
+                        }
+                    }
+                );
+
+                try {
+                    await gitClone(repoUrl, currentPath);
+                    await loadFiles();
+                    toast.success(
+                        <div className="flex flex-col gap-1">
+                            <span className="font-semibold text-sm">Clone Successful</span>
+                            <span className="text-xs text-gray-300">Repository has been added</span>
+                        </div>,
+                        {
+                            id: toastId,
+                            style: {
+                                background: '#1F2937',
+                                color: '#F3F4F6',
+                                border: '1px solid #374151',
+                                borderRadius: '12px',
+                            }
+                        }
+                    );
+                } catch (err) {
+                    toast.error(
+                        <div className="flex flex-col gap-1">
+                            <span className="font-semibold text-sm">Clone Failed</span>
+                            <span className="text-xs text-gray-300">{err instanceof Error ? err.message : 'Unknown error'}</span>
+                        </div>,
+                        {
+                            id: toastId,
+                            style: {
+                                background: '#1F2937',
+                                color: '#F3F4F6',
+                                border: '1px solid #374151',
+                                borderRadius: '12px',
+                            }
+                        }
+                    );
+                }
+
+                setInputModal({ ...inputModal, show: false });
+            }
+        });
     };
 
     const handleEditorSave = async (content: string) => {
@@ -810,6 +970,7 @@ const FileManagerPage: React.FC = () => {
                     onUploadClick={handleUploadClick}
                     onFolderUploadClick={handleFolderUploadClick}
                     onCreateFolder={handleCreateFolder}
+                    onGitClone={handleGitClone}
                     onBulkDelete={handleBulkDelete}
                 />
 
@@ -958,11 +1119,13 @@ const FileManagerPage: React.FC = () => {
                 onCut={handleCut}
                 onPaste={handlePaste}
                 onRefresh={() => {
-                    setFiles([]);
                     loadFiles();
+                    setContextMenu({ ...contextMenu, visible: false });
                 }}
                 onUpload={handleUploadClick}
+                onPermissions={handlePermissions}
             />
+
 
             {/* Upload Progress Bar */}
             {uploadProgress && (
@@ -971,6 +1134,90 @@ const FileManagerPage: React.FC = () => {
                     progress={uploadProgress.progress}
                 />
             )}
+
+            {/* Confirmation Modal */}
+            <ConfirmationModal
+                show={confirmModal.show}
+                title={confirmModal.title}
+                message={confirmModal.message}
+                type={confirmModal.type}
+                confirmText={confirmModal.type === 'danger' ? 'Delete' : 'Confirm'}
+                cancelText="Cancel"
+                showDontShowAgain={confirmModal.type === 'danger'}
+                onDontShowAgainChange={(checked) => {
+                    localStorage.setItem('dontShowDeleteConfirm', checked.toString());
+                    setDontShowDeleteConfirm(checked);
+                }}
+                onConfirm={() => {
+                    confirmModal.onConfirm();
+                    setConfirmModal({ ...confirmModal, show: false });
+                }}
+                onCancel={() => setConfirmModal({ ...confirmModal, show: false })}
+                icon={
+                    confirmModal.type === 'danger' ? (
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                    ) : (
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                    )
+                }
+            />
+
+            {/* Input Modal (for create folder, rename, etc) */}
+            <InputModal
+                show={inputModal.show}
+                title={inputModal.title}
+                placeholder={inputModal.placeholder}
+                defaultValue={inputModal.defaultValue}
+                confirmText={inputModal.confirmText}
+                onConfirm={inputModal.onConfirm}
+                onCancel={() => setInputModal({ ...inputModal, show: false })}
+                icon={inputModal.icon || (
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                )}
+            />
+
+            {/* Extract Modal */}
+            <ExtractModal
+                show={extractModal.show}
+                fileName={extractModal.fileName}
+                onConfirm={async (deleteAfter) => {
+                    const toastId = toast.loading('Extracting archive... 📦');
+                    try {
+                        const result = await extractZipFile(extractModal.filePath, deleteAfter);
+                        await loadFiles();
+                        toast.success(`Extracted successfully! (${result.filesExtracted} files)`, { id: toastId });
+                    } catch (err) {
+                        toast.error('Extract failed: ' + (err instanceof Error ? err.message : 'Unknown error'), { id: toastId });
+                    }
+                    setExtractModal({ ...extractModal, show: false });
+                }}
+                onCancel={() => setExtractModal({ ...extractModal, show: false })}
+            />
+
+            {/* Permissions Modal */}
+            <PermissionsModal
+                show={permissionsModal.show}
+                fileName={permissionsModal.fileName}
+                currentMode={permissionsModal.currentMode}
+                onConfirm={async (mode) => {
+                    const toastId = toast.loading('Changing permissions...');
+                    try {
+                        await changePermissions(permissionsModal.path, mode);
+                        await loadFiles();
+                        toast.success(`Permissions changed to ${mode} 🔒`, { id: toastId });
+                        setPermissionsModal({ ...permissionsModal, show: false });
+                    } catch (err) {
+                        toast.error('Failed to change permissions: ' + (err instanceof Error ? err.message : 'Unknown error'), { id: toastId });
+                    }
+                }}
+                onCancel={() => setPermissionsModal({ ...permissionsModal, show: false })}
+            />
 
         </ProtectedDashboard >
     );

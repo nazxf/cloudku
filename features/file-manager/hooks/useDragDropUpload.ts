@@ -1,4 +1,5 @@
 import React, { useState, useCallback } from 'react';
+import toast from 'react-hot-toast';
 
 interface UseDragDropUploadProps {
     currentPath: string;
@@ -89,10 +90,10 @@ export const useDragDropUpload = ({
             }
 
             onUploadComplete();
-            alert(`Successfully uploaded ${allFiles.length} file(s)!`);
+            toast.success(`Successfully uploaded ${allFiles.length} file(s)! 🚀`);
         } catch (err) {
             console.error('Drag & drop upload error:', err);
-            alert('Upload failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+            toast.error('Upload failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
         } finally {
             setUploading(false);
         }

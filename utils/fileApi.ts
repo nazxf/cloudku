@@ -233,6 +233,33 @@ export const extractZipFile = async (zipPath: string, deleteAfter: boolean = tru
 };
 
 /**
+ * Git Clone Repository
+ */
+export const gitClone = async (repoUrl: string, targetPath: string): Promise<any> => {
+    const token = getToken();
+
+    if (!token) {
+        throw new Error('Not authenticated. Please login first.');
+    }
+
+    const response = await fetch(`${API_URL}/api/files/git-clone`, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ repoUrl, targetPath }),
+    });
+
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({ message: 'Failed to clone repository' }));
+        throw new Error(error.message || 'Failed to clone repository');
+    }
+
+    return response.json();
+};
+
+/**
  * Rename file or folder
  */
 export const renameFile = async (oldPath: string, newName: string): Promise<any> => {
@@ -308,6 +335,25 @@ export const moveFiles = async (sourcePaths: string[], targetPath: string): Prom
     if (!response.ok) {
         const error = await response.json().catch(() => ({ message: 'Failed to move files' }));
         throw new Error(error.message || 'Failed to move files');
+    }
+
+    return response.json();
+};
+
+export const changePermissions = async (path: string, mode: string) => {
+    const token = getToken();
+    const response = await fetch(`${API_URL}/api/files/permissions`, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ path, mode }),
+    });
+
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to change permissions');
     }
 
     return response.json();

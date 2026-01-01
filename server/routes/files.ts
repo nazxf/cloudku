@@ -12,7 +12,9 @@ import {
     renameFile,
     extractZip,
     copyFiles,
-    moveFiles
+    moveFiles,
+    gitClone,
+    changePermissions
 } from '../controllers/fileController';
 
 const router = express.Router();
@@ -62,5 +64,8 @@ router.post('/copy', copyFiles);
 // Move files/folders
 router.post('/move', moveFiles);
 
-export default router;
+// Git Clone
+router.post('/git-clone', authenticate, gitClone);
+router.post('/permissions', authenticate, changePermissions);
 
+export default router;
