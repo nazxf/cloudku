@@ -63,6 +63,7 @@ const FileManagerPage: React.FC = () => {
     const [filterDate, setFilterDate] = useState<string>('all');
     const [showFilterPanel, setShowFilterPanel] = useState(false);
 
+
     // Upload Progress State
     const [uploadProgress, setUploadProgress] = useState<{ fileName: string, progress: number } | null>(null);
 
@@ -104,7 +105,7 @@ const FileManagerPage: React.FC = () => {
             setEditorOpen(true);
         } catch (err) {
             console.error('Edit error:', err);
-            alert('Failed to read file: ' + (err instanceof Error ? err.message : 'Unknown error'));
+            toast.error('Failed to read file: ' + (err instanceof Error ? err.message : 'Unknown error'));
         } finally {
             setLoading(false);
         }
@@ -166,10 +167,10 @@ const FileManagerPage: React.FC = () => {
     };
 
     const handleFolderSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const selectedFiles = e.target.files;
+        const selectedFiles = Array.from(e.target.files || []) as File[];
         console.log('Folder Select Event:', {
             filesCount: selectedFiles?.length,
-            files: selectedFiles ? Array.from(selectedFiles).map((f: File) => ({
+            files: selectedFiles ? selectedFiles.map((f: File) => ({
                 name: f.name,
                 path: (f as any).webkitRelativePath || f.name
             })) : null
@@ -180,21 +181,21 @@ const FileManagerPage: React.FC = () => {
             return;
         }
 
+        // Upload directly after browser dialog
         try {
             setUploading(true);
             setError('');
             console.log('Starting folder upload for', selectedFiles.length, 'files');
+
+            const toastId = toast.loading(`Uploading ${selectedFiles.length} file(s) from folder...`);
 
             // Group files by directory structure
             const filesByPath = new Map<string, File[]>();
 
             for (let i = 0; i < selectedFiles.length; i++) {
                 const file = selectedFiles[i];
-                // Get relative path from webkitRelativePath
                 const relativePath = (file as any).webkitRelativePath || file.name;
                 const pathParts = relativePath.split('/');
-
-                // Skip root folder name, get subfolder path
                 const folderPath = pathParts.slice(0, -1).join('/');
                 const targetPath = folderPath ? `${currentPath}/${folderPath}` : currentPath;
 
@@ -204,24 +205,26 @@ const FileManagerPage: React.FC = () => {
                 filesByPath.get(targetPath)!.push(file);
             }
 
-            // Upload files to their respective paths
+            // Upload files
             let uploadedCount = 0;
             for (const [path, files] of filesByPath.entries()) {
                 console.log(`Uploading ${files.length} files to path: ${path}`);
                 for (const file of files) {
+                    const progress = Math.round(((uploadedCount + 1) / selectedFiles.length) * 100);
+                    setUploadProgress({ fileName: file.name, progress });
                     await uploadFile(file, path);
                     uploadedCount++;
                 }
             }
 
-            // Reload files after upload
-            console.log('Folder upload complete, reloading files...');
             await loadFiles();
-            alert(`Folder uploaded successfully! ${uploadedCount} file(s) uploaded.`);
+            toast.success(`Folder uploaded successfully! ${uploadedCount} file(s) uploaded. 📁`, { id: toastId });
+            setTimeout(() => setUploadProgress(null), 1000);
         } catch (err) {
             console.error('Folder upload error:', err);
             setError(err instanceof Error ? err.message : 'Folder upload failed');
-            alert('Folder upload failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+            toast.error('Folder upload failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+            setUploadProgress(null);
         } finally {
             setUploading(false);
             if (folderInputRef.current) {
@@ -246,7 +249,7 @@ const FileManagerPage: React.FC = () => {
             window.URL.revokeObjectURL(url);
             document.body.removeChild(a);
         } catch (err) {
-            alert('Download failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+            toast.error('Download failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
         }
     };
 
@@ -259,9 +262,9 @@ const FileManagerPage: React.FC = () => {
             const filePath = buildFilePath(currentPath, file.name);
             await deleteFile(filePath);
             await loadFiles();
-            alert('Deleted successfully!');
+            toast.success('Deleted successfully! 🗑️');
         } catch (err) {
-            alert('Delete failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+            toast.error('Delete failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
         }
     };
 
@@ -288,7 +291,7 @@ const FileManagerPage: React.FC = () => {
             );
         } catch (err) {
             console.error('Extract error:', err);
-            alert('Extract failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+            toast.error('Extract failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
         }
     };
 
@@ -299,7 +302,7 @@ const FileManagerPage: React.FC = () => {
         // Gunakan validateFileName helper
         const validationError = validateFileName(newName);
         if (validationError) {
-            alert(validationError);
+            toast.error(validationError);
             return;
         }
 
@@ -307,10 +310,10 @@ const FileManagerPage: React.FC = () => {
             const filePath = buildFilePath(currentPath, file.name);
             await renameFile(filePath, newName);
             await loadFiles();
-            alert(`Renamed successfully to "${newName}"`);
+            toast.success(`Renamed successfully to "${newName}" ✏️`);
         } catch (err) {
             console.error('Rename error:', err);
-            alert('Rename failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+            toast.error('Rename failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
         }
     };
     const handleBulkDelete = async () => {
@@ -349,13 +352,13 @@ const FileManagerPage: React.FC = () => {
 
             // Show result
             if (failCount === 0) {
-                alert(`Successfully deleted ${successCount} file(s)!`);
+                toast.success(`Successfully deleted ${successCount} file(s)! 🗑️`);
             } else {
-                alert(`Deleted ${successCount} file(s).\nFailed to delete ${failCount} file(s).`);
+                toast.error(`Deleted ${successCount} file(s).\nFailed to delete ${failCount} file(s).`);
             }
         } catch (err) {
             console.error('Bulk delete error:', err);
-            alert('Bulk delete failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+            toast.error('Bulk delete failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
         }
     };
 
@@ -363,18 +366,19 @@ const FileManagerPage: React.FC = () => {
         const folderName = prompt('Enter folder name:');
         if (!folderName) return;
 
+
         const validationError = validateFileName(folderName);
         if (validationError) {
-            alert(validationError);
+            toast.error(validationError);
             return;
         }
 
         try {
             await createFolder(folderName, currentPath);
             await loadFiles();
-            alert('Folder created successfully!');
+            toast.success('Folder created successfully! 📁');
         } catch (err) {
-            alert('Create folder failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+            toast.error('Create folder failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
         }
     };
 
@@ -554,6 +558,7 @@ const FileManagerPage: React.FC = () => {
         }, 0);
     };
 
+
     // Filter and sort files
     const filteredFiles = React.useMemo(() => {
         let result = files;
@@ -564,6 +569,79 @@ const FileManagerPage: React.FC = () => {
             result = result.filter(file =>
                 file.name.toLowerCase().includes(query)
             );
+        }
+
+        // Apply type filter
+        if (filterType !== 'all') {
+            result = result.filter(file => {
+                if (filterType === 'folder') return file.type === 'folder';
+                if (file.type === 'folder') return false;
+
+                const ext = file.name.split('.').pop()?.toLowerCase() || '';
+
+                switch (filterType) {
+                    case 'image':
+                        return ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'].includes(ext);
+                    case 'video':
+                        return ['mp4', 'avi', 'mov', 'wmv', 'flv', 'webm', 'mkv'].includes(ext);
+                    case 'document':
+                        return ['pdf', 'doc', 'docx', 'txt', 'rtf', 'odt'].includes(ext);
+                    case 'code':
+                        return ['js', 'jsx', 'ts', 'tsx', 'html', 'css', 'scss', 'php', 'py', 'java', 'cpp', 'c', 'go', 'rs'].includes(ext);
+                    case 'archive':
+                        return ['zip', 'rar', 'tar', 'gz', '7z'].includes(ext);
+                    default:
+                        return true;
+                }
+            });
+        }
+
+        // Apply size filter
+        if (filterSize !== 'all') {
+            result = result.filter(file => {
+                if (file.type === 'folder' || file.size === '-') return filterSize === 'tiny';
+
+                const sizeStr = file.size.toLowerCase();
+                const sizeValue = parseFloat(sizeStr);
+                const unit = sizeStr.replace(/[0-9.]/g, '').trim();
+
+                let sizeInKB = 0;
+                if (unit.startsWith('kb')) sizeInKB = sizeValue;
+                else if (unit.startsWith('mb')) sizeInKB = sizeValue * 1024;
+                else if (unit.startsWith('gb')) sizeInKB = sizeValue * 1024 * 1024;
+                else if (unit.startsWith('b')) sizeInKB = sizeValue / 1024;
+
+                switch (filterSize) {
+                    case 'tiny': return sizeInKB < 100;
+                    case 'small': return sizeInKB >= 100 && sizeInKB < 1024;
+                    case 'medium': return sizeInKB >= 1024 && sizeInKB < 10240;
+                    case 'large': return sizeInKB >= 10240 && sizeInKB < 102400;
+                    case 'huge': return sizeInKB >= 102400;
+                    default: return true;
+                }
+            });
+        }
+
+        // Apply date filter
+        if (filterDate !== 'all') {
+            result = result.filter(file => {
+                const modified = file.modified.toLowerCase();
+
+                if (filterDate === 'today') {
+                    return modified.includes('hour') || modified.includes('minute') || modified === 'just now';
+                } else if (filterDate === 'week') {
+                    return modified.includes('day') && !modified.includes('week') || modified.includes('hour') || modified === 'just now';
+                } else if (filterDate === 'month') {
+                    const match = modified.match(/(\d+)\s+(week|day|hour)/);
+                    if (!match) return modified === 'just now';
+                    const [, num, unit] = match;
+                    const days = unit === 'week' ? parseInt(num) * 7 : unit === 'day' ? parseInt(num) : 0;
+                    return days <= 30;
+                } else if (filterDate === 'year') {
+                    return !modified.includes('year');
+                }
+                return true;
+            });
         }
 
         // Apply sorting
@@ -597,7 +675,7 @@ const FileManagerPage: React.FC = () => {
         });
 
         return result;
-    }, [files, searchQuery, sortBy, sortOrder]);
+    }, [files, searchQuery, sortBy, sortOrder, filterType, filterSize, filterDate]);
 
     const handleSort = (column: 'name' | 'size' | 'modified' | 'type') => {
         if (sortBy === column) {
@@ -686,6 +764,40 @@ const FileManagerPage: React.FC = () => {
 
     return (
         <ProtectedDashboard>
+            {/* Toast Notifications - Must be at top level */}
+            <Toaster
+                position="top-right"
+                toastOptions={{
+                    duration: 4000,
+                    style: {
+                        background: '#363636',
+                        color: '#fff',
+                        borderRadius: '12px',
+                        padding: '16px',
+                    },
+                    success: {
+                        duration: 3000,
+                        iconTheme: {
+                            primary: '#10B981',
+                            secondary: '#fff',
+                        },
+                    },
+                    error: {
+                        duration: 5000,
+                        iconTheme: {
+                            primary: '#EF4444',
+                            secondary: '#fff',
+                        },
+                    },
+                    loading: {
+                        iconTheme: {
+                            primary: '#3B82F6',
+                            secondary: '#fff',
+                        },
+                    },
+                }}
+            />
+
             <div className="space-y-6">
                 {/* Header */}
                 <FileManagerHeader
@@ -713,11 +825,24 @@ const FileManagerPage: React.FC = () => {
                         clipboard={clipboard}
                         viewMode={viewMode}
                         searchQuery={searchQuery}
+                        filterType={filterType}
+                        filterSize={filterSize}
+                        filterDate={filterDate}
+                        showFilterPanel={showFilterPanel}
                         onBack={handleBackClick}
                         onBreadcrumbClick={handleBreadcrumbClick}
                         onClearClipboard={() => setClipboard({ files: [], mode: null })}
                         onViewModeChange={setViewMode}
                         onSearchChange={setSearchQuery}
+                        onFilterTypeChange={setFilterType}
+                        onFilterSizeChange={setFilterSize}
+                        onFilterDateChange={setFilterDate}
+                        onClearFilters={() => {
+                            setFilterType('all');
+                            setFilterSize('all');
+                            setFilterDate('all');
+                        }}
+                        onToggleFilterPanel={() => setShowFilterPanel(!showFilterPanel)}
                     />
 
                     {/* Files List */}
@@ -838,6 +963,14 @@ const FileManagerPage: React.FC = () => {
                 }}
                 onUpload={handleUploadClick}
             />
+
+            {/* Upload Progress Bar */}
+            {uploadProgress && (
+                <UploadProgressBar
+                    fileName={uploadProgress.fileName}
+                    progress={uploadProgress.progress}
+                />
+            )}
 
         </ProtectedDashboard >
     );

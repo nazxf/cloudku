@@ -15,6 +15,8 @@ export default {
             animation: {
                 'slide-up': 'slideUp 0.3s ease-out',
                 'shine': 'shine 1.5s infinite',
+                'fadeIn': 'fadeIn 0.2s ease-out',
+                'scaleIn': 'scaleIn 0.3s ease-out',
             },
             keyframes: {
                 slideUp: {
@@ -24,6 +26,14 @@ export default {
                 shine: {
                     '0%': { transform: 'translateX(-100%)' },
                     '100%': { transform: 'translateX(100%)' },
+                },
+                fadeIn: {
+                    '0%': { opacity: '0' },
+                    '100%': { opacity: '1' },
+                },
+                scaleIn: {
+                    '0%': { transform: 'scale(0.9)', opacity: '0' },
+                    '100%': { transform: 'scale(1)', opacity: '1' },
                 },
             },
         },

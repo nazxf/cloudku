@@ -1,6 +1,7 @@
 import React from 'react';
 import type { Breadcrumb } from '../../features/file-manager/utils/path-helpers';
 import type { ClipboardState, ViewMode } from '../../features/file-manager/types';
+import AdvancedFilterPanel from '../AdvancedFilterPanel';
 
 interface FileManagerToolbarProps {
     currentPath: string;
@@ -8,11 +9,20 @@ interface FileManagerToolbarProps {
     clipboard: ClipboardState;
     viewMode: ViewMode;
     searchQuery: string;
+    filterType: string;
+    filterSize: string;
+    filterDate: string;
+    showFilterPanel: boolean;
     onBack: () => void;
     onBreadcrumbClick: (index: number) => void;
     onClearClipboard: () => void;
     onViewModeChange: (mode: ViewMode) => void;
     onSearchChange: (query: string) => void;
+    onFilterTypeChange: (value: string) => void;
+    onFilterSizeChange: (value: string) => void;
+    onFilterDateChange: (value: string) => void;
+    onClearFilters: () => void;
+    onToggleFilterPanel: () => void;
 }
 
 const FileManagerToolbar: React.FC<FileManagerToolbarProps> = ({
@@ -21,12 +31,24 @@ const FileManagerToolbar: React.FC<FileManagerToolbarProps> = ({
     clipboard,
     viewMode,
     searchQuery,
+    filterType,
+    filterSize,
+    filterDate,
+    showFilterPanel,
     onBack,
     onBreadcrumbClick,
     onClearClipboard,
     onViewModeChange,
-    onSearchChange
+    onSearchChange,
+    onFilterTypeChange,
+    onFilterSizeChange,
+    onFilterDateChange,
+    onClearFilters,
+    onToggleFilterPanel
 }) => {
+    const hasActiveFilters = filterType !== 'all' || filterSize !== 'all' || filterDate !== 'all';
+    const activeFilterCount = [filterType !== 'all', filterSize !== 'all', filterDate !== 'all'].filter(Boolean).length;
+
     return (
         <div className="p-6 border-b border-gray-200">
             <div className="flex items-center justify-between mb-4">
@@ -152,12 +174,40 @@ const FileManagerToolbar: React.FC<FileManagerToolbarProps> = ({
                         </button>
                     )}
                 </div>
-                <button className="px-4 py-2 bg-gray-50 border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-100 transition-colors flex items-center gap-2">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-                    </svg>
-                    Filter
-                </button>
+
+                {/* Advanced Filter Button */}
+                <div className="relative">
+                    <button
+                        onClick={onToggleFilterPanel}
+                        className={`px-4 py-2 border text-sm font-medium rounded-lg transition-all flex items-center gap-2 ${showFilterPanel || hasActiveFilters
+                                ? 'bg-blue-500 text-white border-blue-500 shadow-lg'
+                                : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
+                            }`}
+                    >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                        </svg>
+                        Filter
+                        {hasActiveFilters && (
+                            <span className="ml-1 bg-white text-blue-600 rounded-full px-2 py-0.5 text-xs font-bold">
+                                {activeFilterCount}
+                            </span>
+                        )}
+                    </button>
+
+                    {/* Advanced Filter Panel */}
+                    <AdvancedFilterPanel
+                        show={showFilterPanel}
+                        onClose={() => onToggleFilterPanel()}
+                        filterType={filterType}
+                        filterSize={filterSize}
+                        filterDate={filterDate}
+                        onFilterTypeChange={onFilterTypeChange}
+                        onFilterSizeChange={onFilterSizeChange}
+                        onFilterDateChange={onFilterDateChange}
+                        onClearFilters={onClearFilters}
+                    />
+                </div>
             </div>
         </div>
     );
