@@ -1,0 +1,27 @@
+[Unit]
+Description=CloudKu Go Backend Server
+After=network.target postgresql.service
+
+[Service]
+# User yang menjalankan service (ubah sesuai user VPS, misal: ubuntu/root)
+User=root
+Group=root
+
+# Working Directory
+WorkingDirectory=/var/www/cloudku/go-server
+
+# Command untuk menjalankan
+ExecStart=/var/www/cloudku/go-server/cloudku-server
+
+# Restart policy
+Restart=always
+RestartSec=10
+
+# Environment variables
+EnvironmentFile=/var/www/cloudku/go-server/.env
+
+# Limits
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
