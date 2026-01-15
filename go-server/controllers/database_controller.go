@@ -2,114 +2,63 @@ package controllers
 
 import (
 	"context"
-	"log"
 	"net/http"
 	"strconv"
 	"time"
 
-	"cloudku-server/database"
+	"cloudku-server/dto"
 	"cloudku-server/middleware"
 	"cloudku-server/services"
 
 	"github.com/gin-gonic/gin"
-	_ "github.com/go-sql-driver/mysql"
 )
 
 // DatabaseController handles database management endpoints
-type DatabaseController struct{}
+// This is a thin controller - it only handles HTTP concerns
+type DatabaseController struct {
+	service *services.DatabaseService
+}
 
 // NewDatabaseController creates a new database controller
 func NewDatabaseController() *DatabaseController {
-	return &DatabaseController{}
-}
-
-// UserDatabase represents a user's database
-type UserDatabase struct {
-	ID           int       `json:"id"`
-	UserID       int       `json:"user_id"`
-	DatabaseName string    `json:"database_name"`
-	DatabaseUser string    `json:"database_user"`
-	DatabaseType string    `json:"database_type"`
-	Charset      string    `json:"charset"`
-	Collation    string    `json:"collation"`
-	SizeMB       float64   `json:"size_mb"`
-	CreatedAt    time.Time `json:"created_at"`
+	return &DatabaseController{
+		service: services.NewDatabaseService(),
+	}
 }
 
 // GetDatabases returns all databases for the user
 func (dc *DatabaseController) GetDatabases(c *gin.Context) {
 	userID := middleware.GetUserID(c)
-	ctx := context.Background()
 
-	query := `
-		SELECT id, user_id, database_name, database_user, database_type, 
-		       charset, "collation", size_mb, created_at
-		FROM user_databases
-		WHERE user_id = $1
-		ORDER BY created_at DESC
-	`
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
 
-	rows, err := database.DB.Query(ctx, query, userID)
-	if err != nil {
+	result := dc.service.GetDatabases(ctx, userID)
+	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
 			"message": "Failed to fetch databases",
 		})
 		return
 	}
-	defer rows.Close()
-
-	var databases []UserDatabase
-	for rows.Next() {
-		var db UserDatabase
-		if err := rows.Scan(&db.ID, &db.UserID, &db.DatabaseName, &db.DatabaseUser,
-			&db.DatabaseType, &db.Charset, &db.Collation, &db.SizeMB, &db.CreatedAt); err != nil {
-			continue
-		}
-		databases = append(databases, db)
-	}
-
-	// Get stats
-	var totalDatabases, mysqlCount, postgresCount int
-	var totalSize float64
-
-	for _, db := range databases {
-		totalDatabases++
-		totalSize += db.SizeMB
-		if db.DatabaseType == "mysql" {
-			mysqlCount++
-		} else {
-			postgresCount++
-		}
-	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success":   true,
-		"databases": databases,
+		"databases": result.Databases,
 		"stats": gin.H{
-			"totalDatabases": totalDatabases,
-			"mysqlCount":     mysqlCount,
-			"postgresCount":  postgresCount,
-			"totalSizeMB":    totalSize,
+			"totalDatabases": result.Stats.TotalDatabases,
+			"mysqlCount":     result.Stats.MySQLCount,
+			"postgresCount":  result.Stats.PostgresCount,
+			"totalSizeMB":    result.Stats.TotalSizeMB,
 		},
 	})
-}
-
-// CreateDatabaseRequest represents create database request
-type CreateDatabaseRequest struct {
-	DatabaseName     string `json:"databaseName" binding:"required"`
-	DatabaseUser     string `json:"databaseUser" binding:"required"`
-	DatabasePassword string `json:"databasePassword" binding:"required"`
-	DatabaseType     string `json:"databaseType" binding:"required"`
-	Charset          string `json:"charset"`
-	Collation        string `json:"collation"`
 }
 
 // CreateDatabase creates a new database
 func (dc *DatabaseController) CreateDatabase(c *gin.Context) {
 	userID := middleware.GetUserID(c)
 
-	var req CreateDatabaseRequest
+	var req dto.CreateDatabaseRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
@@ -118,56 +67,14 @@ func (dc *DatabaseController) CreateDatabase(c *gin.Context) {
 		return
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
+	defer cancel()
 
-	// Default charset and collation
-	charset := req.Charset
-	collation := req.Collation
-	if charset == "" {
-		if req.DatabaseType == "mysql" {
-			charset = "utf8mb4"
-			collation = "utf8mb4_unicode_ci"
-		} else {
-			// PostgreSQL placeholder
-			charset = "UTF8"
-			collation = "en_US.UTF-8"
-		}
-	}
-
-	// 1. Create in MySQL Server (if type is mysql)
-	if req.DatabaseType == "mysql" {
-		mysqlService := services.NewMySQLService()
-		if err := mysqlService.CreateDatabase(ctx, req.DatabaseName, req.DatabaseUser, req.DatabasePassword); err != nil {
-			// SECURITY: Log internal error but don't expose details to client
-			log.Printf("ERROR: Failed to create MySQL database: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"success": false,
-				"message": "Failed to create MySQL database",
-			})
-			return
-		}
-	}
-
-	// 2. Store metadata in Postgres
-	query := `
-		INSERT INTO user_databases (user_id, database_name, database_user, database_type, charset, "collation")
-		VALUES ($1, $2, $3, $4, $5, $6)
-		RETURNING id, user_id, database_name, database_user, database_type, charset, "collation", size_mb, created_at
-	`
-
-	var db UserDatabase
-	err := database.DB.QueryRow(ctx, query, userID, req.DatabaseName, req.DatabaseUser,
-		req.DatabaseType, charset, collation).Scan(
-		&db.ID, &db.UserID, &db.DatabaseName, &db.DatabaseUser,
-		&db.DatabaseType, &db.Charset, &db.Collation, &db.SizeMB, &db.CreatedAt,
-	)
-	if err != nil {
-		// If metadata storage fails, we should probably rollback MySQL changes,
-		// but for now logging/error is enough for MVP.
+	result := dc.service.CreateDatabase(ctx, userID, req)
+	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
-			"message": "Failed to track database",
-			"error":   err.Error(),
+			"message": "Failed to create database",
 		})
 		return
 	}
@@ -175,15 +82,15 @@ func (dc *DatabaseController) CreateDatabase(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{
 		"success":  true,
 		"message":  "Database created successfully",
-		"database": db,
+		"database": result.Database,
 	})
 }
 
 // DeleteDatabase deletes a database
 func (dc *DatabaseController) DeleteDatabase(c *gin.Context) {
 	userID := middleware.GetUserID(c)
-	idStr := c.Param("id")
-	id, err := strconv.Atoi(idStr)
+
+	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
@@ -192,33 +99,21 @@ func (dc *DatabaseController) DeleteDatabase(c *gin.Context) {
 		return
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
+	defer cancel()
 
-	// 1. Get database details to delete from MySQL
-	var dbName, dbUser, dbType string
-	err = database.DB.QueryRow(ctx, "SELECT database_name, database_user, database_type FROM user_databases WHERE id = $1 AND user_id = $2", id, userID).Scan(&dbName, &dbUser, &dbType)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
+	if err := dc.service.DeleteDatabase(ctx, userID, id); err != nil {
+		status := http.StatusInternalServerError
+		message := "Failed to delete database"
+
+		if err == dto.ErrDatabaseNotFound {
+			status = http.StatusNotFound
+			message = "Database not found"
+		}
+
+		c.JSON(status, gin.H{
 			"success": false,
-			"message": "Database not found",
-		})
-		return
-	}
-
-	// 2. Delete from MySQL
-	if dbType == "mysql" {
-		mysqlService := services.NewMySQLService()
-		// Best effort, ignore errors for now or log them
-		_ = mysqlService.DeleteDatabase(ctx, dbName, dbUser)
-	}
-
-	// 3. Delete metadata
-	query := `DELETE FROM user_databases WHERE id = $1 AND user_id = $2`
-	_, err = database.DB.Exec(ctx, query, id, userID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "Failed to delete database record",
+			"message": message,
 		})
 		return
 	}
@@ -229,16 +124,11 @@ func (dc *DatabaseController) DeleteDatabase(c *gin.Context) {
 	})
 }
 
-// ChangePasswordRequest represents change password request
-type ChangePasswordRequest struct {
-	NewPassword string `json:"newPassword" binding:"required"`
-}
-
 // ChangePassword changes database user password
 func (dc *DatabaseController) ChangePassword(c *gin.Context) {
 	userID := middleware.GetUserID(c)
-	idStr := c.Param("id")
-	id, err := strconv.Atoi(idStr)
+
+	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
@@ -247,7 +137,7 @@ func (dc *DatabaseController) ChangePassword(c *gin.Context) {
 		return
 	}
 
-	var req ChangePasswordRequest
+	var req dto.ChangePasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
@@ -256,32 +146,23 @@ func (dc *DatabaseController) ChangePassword(c *gin.Context) {
 		return
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
 
-	// Verify ownership and get details
-	var dbName, dbUser, dbType string
-	query := `SELECT database_name, database_user, database_type FROM user_databases WHERE id = $1 AND user_id = $2`
-	err = database.DB.QueryRow(ctx, query, id, userID).Scan(&dbName, &dbUser, &dbType)
+	if err := dc.service.ChangePassword(ctx, userID, id, req.NewPassword); err != nil {
+		status := http.StatusInternalServerError
+		message := "Failed to change password on server"
 
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
+		if err == dto.ErrDatabaseNotFound {
+			status = http.StatusNotFound
+			message = "Database not found"
+		}
+
+		c.JSON(status, gin.H{
 			"success": false,
-			"message": "Database not found",
+			"message": message,
 		})
 		return
-	}
-
-	// Execute actual password change on MySQL
-	if dbType == "mysql" {
-		mysqlService := services.NewMySQLService()
-		if err := mysqlService.UpdatePassword(ctx, dbUser, req.NewPassword); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"success": false,
-				"message": "Failed to change password on server",
-				"error":   err.Error(),
-			})
-			return
-		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -292,11 +173,9 @@ func (dc *DatabaseController) ChangePassword(c *gin.Context) {
 
 // UpdateSize updates database size
 func (dc *DatabaseController) UpdateSize(c *gin.Context) {
-	// SECURITY: Add authorization check - was missing user validation
 	userID := middleware.GetUserID(c)
 
-	idStr := c.Param("id")
-	id, err := strconv.Atoi(idStr)
+	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
@@ -305,26 +184,24 @@ func (dc *DatabaseController) UpdateSize(c *gin.Context) {
 		return
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
 
-	// SECURITY: Verify ownership before allowing update
-	var exists bool
-	verifyQuery := `SELECT EXISTS(SELECT 1 FROM user_databases WHERE id = $1 AND user_id = $2)`
-	database.DB.QueryRow(ctx, verifyQuery, id, userID).Scan(&exists)
-	if !exists {
-		c.JSON(http.StatusNotFound, gin.H{
+	sizeMB, err := dc.service.UpdateSize(ctx, userID, id)
+	if err != nil {
+		if err == dto.ErrDatabaseNotFound {
+			c.JSON(http.StatusNotFound, gin.H{
+				"success": false,
+				"message": "Database not found",
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
-			"message": "Database not found",
+			"message": "Failed to update size",
 		})
 		return
 	}
-
-	// In production, this would query actual database size
-	// For now, we return a simulated size
-	sizeMB := 10.5 // Simulated size
-
-	query := `UPDATE user_databases SET size_mb = $1 WHERE id = $2 AND user_id = $3`
-	database.DB.Exec(ctx, query, sizeMB, id, userID)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -335,45 +212,35 @@ func (dc *DatabaseController) UpdateSize(c *gin.Context) {
 // GetStats returns database statistics
 func (dc *DatabaseController) GetStats(c *gin.Context) {
 	userID := middleware.GetUserID(c)
-	ctx := context.Background()
 
-	var totalDatabases, mysqlCount, postgresCount int
-	var totalSize float64
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
 
-	query := `SELECT COUNT(*) FROM user_databases WHERE user_id = $1`
-	database.DB.QueryRow(ctx, query, userID).Scan(&totalDatabases)
-
-	query = `SELECT COUNT(*) FROM user_databases WHERE user_id = $1 AND database_type = 'mysql'`
-	database.DB.QueryRow(ctx, query, userID).Scan(&mysqlCount)
-
-	query = `SELECT COUNT(*) FROM user_databases WHERE user_id = $1 AND database_type = 'postgresql'`
-	database.DB.QueryRow(ctx, query, userID).Scan(&postgresCount)
-
-	query = `SELECT COALESCE(SUM(size_mb), 0) FROM user_databases WHERE user_id = $1`
-	database.DB.QueryRow(ctx, query, userID).Scan(&totalSize)
+	stats, err := dc.service.GetStats(ctx, userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "Failed to get stats",
+		})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"stats": gin.H{
-			"totalDatabases": totalDatabases,
-			"mysqlCount":     mysqlCount,
-			"postgresCount":  postgresCount,
-			"totalSizeMB":    totalSize,
+			"totalDatabases": stats.TotalDatabases,
+			"mysqlCount":     stats.MySQLCount,
+			"postgresCount":  stats.PostgresCount,
+			"totalSizeMB":    stats.TotalSizeMB,
 		},
 	})
-}
-
-// ExecuteQueryRequest represents SQL query execution request
-type ExecuteQueryRequest struct {
-	Query    string `json:"query" binding:"required"`
-	Password string `json:"password" binding:"required"`
 }
 
 // ExecuteQuery executes a SQL query on user's database
 func (dc *DatabaseController) ExecuteQuery(c *gin.Context) {
 	userID := middleware.GetUserID(c)
-	idStr := c.Param("id")
-	id, err := strconv.Atoi(idStr)
+
+	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
@@ -382,46 +249,29 @@ func (dc *DatabaseController) ExecuteQuery(c *gin.Context) {
 		return
 	}
 
-	var req ExecuteQueryRequest
+	var req dto.ExecuteQueryRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
-			"message": "Query and password are required",
+			"message": "Query is required",
 		})
 		return
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
 
-	// SECURITY: Verify ownership and get database details
-	var dbName, dbUser, dbType string
-	verifyQuery := `SELECT database_name, database_user, database_type FROM user_databases WHERE id = $1 AND user_id = $2`
-	err = database.DB.QueryRow(ctx, verifyQuery, id, userID).Scan(&dbName, &dbUser, &dbType)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"success": false,
-			"message": "Database not found",
-		})
-		return
-	}
+	result := dc.service.ExecuteQuery(ctx, userID, id, req.Query, req.Password)
+	if result.Error != nil {
+		status := http.StatusBadRequest
 
-	// Only MySQL supported for now
-	if dbType != "mysql" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "Only MySQL databases support SQL console currently",
-		})
-		return
-	}
+		if result.Error == dto.ErrDatabaseNotFound {
+			status = http.StatusNotFound
+		}
 
-	// Execute query
-	mysqlService := services.NewMySQLService()
-	result, err := mysqlService.ExecuteQuery(ctx, dbName, dbUser, req.Password, req.Query)
-	if err != nil {
-		log.Printf("WARN: SQL query failed for db %s: %v", dbName, err)
-		c.JSON(http.StatusBadRequest, gin.H{
+		c.JSON(status, gin.H{
 			"success": false,
-			"message": err.Error(),
+			"message": result.Error.Error(),
 		})
 		return
 	}

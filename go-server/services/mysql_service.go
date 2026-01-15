@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"cloudku-server/database"
@@ -13,7 +14,8 @@ import (
 
 // MySQLService handles MySQL specific operations
 type MySQLService struct {
-	db *sql.DB
+	db       *sql.DB
+	userPool sync.Map // map[string]*sql.DB (key: dbUser)
 }
 
 // NewMySQLService creates a new MySQL service instance
@@ -106,9 +108,23 @@ func (s *MySQLService) DeleteDatabase(ctx context.Context, dbName, dbUser string
 		return fmt.Errorf("invalid identifier")
 	}
 
+	// Invalidate pool connection if exists
+	if val, ok := s.userPool.Load(dbUser); ok {
+		if conn, ok := val.(*sql.DB); ok {
+			conn.Close()
+		}
+		s.userPool.Delete(dbUser)
+	}
+
 	// Best effort cleanup
-	s.db.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS `%s`", dbName))
-	s.db.ExecContext(ctx, fmt.Sprintf("DROP USER IF EXISTS '%s'@'%%'", dbUser))
+	if _, err := s.db.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS `%s`", dbName)); err != nil {
+		return fmt.Errorf("failed to drop database: %w", err)
+	}
+
+	if _, err := s.db.ExecContext(ctx, fmt.Sprintf("DROP USER IF EXISTS '%s'@'%%'", dbUser)); err != nil {
+		return fmt.Errorf("failed to drop user: %w", err)
+	}
+
 	s.db.ExecContext(ctx, "FLUSH PRIVILEGES")
 
 	return nil
@@ -135,6 +151,14 @@ func (s *MySQLService) UpdatePassword(ctx context.Context, dbUser, newPassword s
 		return fmt.Errorf("invalid password: %w", err)
 	}
 
+	// Invalidate pool connection because password changed
+	if val, ok := s.userPool.Load(dbUser); ok {
+		if conn, ok := val.(*sql.DB); ok {
+			conn.Close()
+		}
+		s.userPool.Delete(dbUser)
+	}
+
 	// SECURITY: Escape password to prevent SQL injection
 	escapedPassword := s.escapePassword(newPassword)
 	_, err := s.db.ExecContext(ctx, fmt.Sprintf("ALTER USER '%s'@'%%' IDENTIFIED BY '%s'", dbUser, escapedPassword))
@@ -159,6 +183,45 @@ var forbiddenCommands = []string{
 	"CREATE USER", "DROP USER", "ALTER USER", "FLUSH",
 }
 
+// GetPooledConnection retrieves or creates a persistent connection for a user
+func (s *MySQLService) GetPooledConnection(ctx context.Context, dbName, dbUser, dbPassword string) (*sql.DB, error) {
+	// 1. Check if connection exists in pool
+	if val, ok := s.userPool.Load(dbUser); ok {
+		conn := val.(*sql.DB)
+		// Ping to ensure it's alive
+		if err := conn.PingContext(ctx); err == nil {
+			return conn, nil
+		}
+		// If ping fails, close and remove from pool
+		conn.Close()
+		s.userPool.Delete(dbUser)
+	}
+
+	// 2. Create new connection
+	connString := fmt.Sprintf("%s:%s@tcp(localhost:3306)/%s?charset=utf8mb4&parseTime=True&multiStatements=true",
+		dbUser, s.escapePassword(dbPassword), dbName)
+
+	userDB, err := sql.Open("mysql", connString)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to database: %w", err)
+	}
+
+	// Set connection limits (Important for pooling)
+	userDB.SetMaxOpenConns(5) // Allow up to 5 concurrent queries per user
+	userDB.SetMaxIdleConns(2)
+	userDB.SetConnMaxLifetime(5 * time.Minute) // Keep alive longer
+
+	// Test connection
+	if err := userDB.PingContext(ctx); err != nil {
+		userDB.Close()
+		return nil, fmt.Errorf("failed to connect: %w", err)
+	}
+
+	// 3. Store in pool
+	s.userPool.Store(dbUser, userDB)
+	return userDB, nil
+}
+
 // ExecuteQuery executes a SQL query on a specific user database
 // SECURITY: This connects to the user's database with their credentials
 func (s *MySQLService) ExecuteQuery(ctx context.Context, dbName, dbUser, dbPassword, query string) (*QueryResult, error) {
@@ -179,24 +242,12 @@ func (s *MySQLService) ExecuteQuery(ctx context.Context, dbName, dbUser, dbPassw
 		}
 	}
 
-	// Connect to the specific user database
-	connString := fmt.Sprintf("%s:%s@tcp(localhost:3306)/%s?charset=utf8mb4&parseTime=True",
-		dbUser, s.escapePassword(dbPassword), dbName)
-
-	userDB, err := sql.Open("mysql", connString)
+	// Use Pooled Connection!
+	userDB, err := s.GetPooledConnection(ctx, dbName, dbUser, dbPassword)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to database: %w", err)
+		return nil, err
 	}
-	defer userDB.Close()
-
-	// Set connection limits
-	userDB.SetMaxOpenConns(1)
-	userDB.SetConnMaxLifetime(30 * time.Second)
-
-	// Test connection
-	if err := userDB.PingContext(ctx); err != nil {
-		return nil, fmt.Errorf("failed to connect: %w", err)
-	}
+	// DO NOT defer userDB.Close() here! We want to keep it alive in the pool.
 
 	// Check if it's a SELECT-like query (returns rows) or an action query
 	trimmedQuery := strings.TrimSpace(upperQuery)

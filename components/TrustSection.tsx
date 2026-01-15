@@ -6,7 +6,7 @@ const TrustSection: React.FC = () => {
     { name: 'Google Cloud', logo: 'https://www.vectorlogo.zone/logos/google_cloud/google_cloud-ar21.svg' },
     { name: 'DigitalOcean', logo: 'https://www.vectorlogo.zone/logos/digitalocean/digitalocean-ar21.svg' },
     { name: 'Cloudflare', logo: 'https://www.vectorlogo.zone/logos/cloudflare/cloudflare-ar21.svg' },
-    { name: 'GitHub', logo: 'https://logo.clearbit.com/github.com' },
+    { name: 'GitHub', logo: 'https://icons.getbootstrap.com/icons/github' },
     { name: 'Slack', logo: 'https://www.vectorlogo.zone/logos/slack/slack-ar21.svg' },
   ];
 

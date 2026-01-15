@@ -1,5 +1,5 @@
 import React from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -31,7 +31,7 @@ const CreateDatabaseModal: React.FC<CreateDatabaseModalProps> = ({
                 <div className="p-8 pb-2 flex items-center justify-between">
                     <div>
                         <DialogTitle className="text-2xl font-black text-gray-900 tracking-tight">Deploy Instance</DialogTitle>
-                        <p className="text-gray-500 font-medium mt-1">Select your engine and configure.</p>
+                        <DialogDescription className="text-gray-500 font-medium mt-1">Select your engine and configure.</DialogDescription>
                     </div>
                      <Button 
                         variant="ghost" 

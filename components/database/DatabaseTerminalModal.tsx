@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Database } from '../../types';
-import { Dialog, DialogContent } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { Play, Eraser, Loader2, CheckCircle2, Terminal, X, Lock } from "lucide-react"
+import { Play, Eraser, Loader2, CheckCircle2, Terminal, X } from "lucide-react"
 import { getToken } from '../../utils/authApi';
+import Editor, { OnMount } from "@monaco-editor/react";
 
 interface DatabaseTerminalModalProps {
     isOpen: boolean;
@@ -17,21 +18,62 @@ const DatabaseTerminalModal: React.FC<DatabaseTerminalModalProps> = ({
     database
 }) => {
     const [query, setQuery] = useState('SHOW TABLES;');
-    const [password, setPassword] = useState('');
+    const [selectedQuery, setSelectedQuery] = useState('');
+    const [password, setPassword] = useState(''); // Optional
     const [isRunning, setIsRunning] = useState(false);
     const [result, setResult] = useState<any>(null);
     const [error, setError] = useState<string | null>(null);
     const [queryTime, setQueryTime] = useState<number>(0);
+    
+    const editorRef = useRef<any>(null);
+
+    // Reset state on open
+    useEffect(() => {
+        if (isOpen) {
+            setResult(null);
+            setError(null);
+            setSelectedQuery('');
+        }
+    }, [isOpen]);
 
     if (!database) return null;
 
+    const handleEditorWillMount = (monaco: any) => {
+        // Define custom theme to change red strings to green
+        monaco.editor.defineTheme('cloudku-dark', {
+            base: 'vs-dark',
+            inherit: true,
+            rules: [
+                { token: 'string', foreground: '3ECF8E' }, // Green strings (requested by user)
+                { token: 'string.sql', foreground: '3ECF8E' },
+            ],
+            colors: {
+                'editor.background': '#1C1C1C',
+            }
+        });
+    };
+
+    const handleEditorDidMount: OnMount = (editor, monaco) => {
+        editorRef.current = editor;
+        
+        // Listen to selection changes
+        editor.onDidChangeCursorSelection((e) => {
+            const selection = editor.getModel()?.getValueInRange(e.selection);
+            setSelectedQuery(selection?.trim() || '');
+        });
+
+        // Add classic "Run" shortcut (Ctrl+Enter)
+        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
+            handleRun();
+        });
+    };
+
     const handleRun = async () => {
-        if (!password) {
-            setError('Please enter your database password');
-            return;
-        }
-        if (!query.trim()) {
-            setError('Please enter a SQL query');
+        // Use selected text if available, otherwise full query
+        const queryToRun = selectedQuery || editorRef.current?.getValue() || query;
+
+        if (!queryToRun.trim()) {
+            setError('Please enter or select a SQL query');
             return;
         }
 
@@ -49,7 +91,7 @@ const DatabaseTerminalModal: React.FC<DatabaseTerminalModalProps> = ({
                     'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ query, password })
+                body: JSON.stringify({ query: queryToRun, password }) 
             });
 
             const data = await response.json();
@@ -75,12 +117,15 @@ const DatabaseTerminalModal: React.FC<DatabaseTerminalModalProps> = ({
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
             <DialogContent className="bg-[#1C1C1C] border-[#2E2E2E] p-0 gap-0 sm:max-w-5xl h-[700px] flex flex-col text-gray-300 shadow-2xl overflow-hidden [&>button]:hidden">
+                <DialogTitle className="sr-only">SQL Editor</DialogTitle>
+                <DialogDescription className="sr-only">Execute SQL queries securely on your database</DialogDescription>
+                
                 {/* Header / Toolbar */}
                 <div className="flex items-center justify-between px-4 py-3 border-b border-[#2E2E2E] bg-[#1F1F1F]">
                     <div className="flex items-center gap-4">
                         <div className="flex items-center gap-2 text-[#EDEDED] font-semibold text-sm">
                             <Terminal className="w-4 h-4 text-[#3ECF8E]" />
-                            <span>SQL Editor</span>
+                            <span>SQL Console</span>
                         </div>
                         <div className="h-4 w-px bg-[#333]"></div>
                         <div className="flex items-center gap-2 text-xs text-gray-500">
@@ -89,22 +134,16 @@ const DatabaseTerminalModal: React.FC<DatabaseTerminalModalProps> = ({
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
-                        {/* Password Input */}
-                        <div className="flex items-center gap-2 bg-[#252525] rounded-lg px-3 py-1.5 border border-[#333]">
-                            <Lock className="w-3.5 h-3.5 text-gray-500" />
-                            <input 
-                                type="password"
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                                placeholder="DB Password"
-                                className="bg-transparent text-sm text-white w-24 outline-none placeholder:text-gray-600"
-                            />
-                        </div>
                         <Button 
                             variant="ghost" 
                             size="sm" 
                             className="h-8 text-xs font-medium text-gray-400 hover:text-white hover:bg-[#333]"
-                            onClick={() => { setQuery(''); setResult(null); setError(null); }}
+                            onClick={() => { 
+                                editorRef.current?.setValue(''); 
+                                setQuery(''); 
+                                setResult(null); 
+                                setError(null); 
+                            }}
                         >
                             <Eraser className="w-3.5 h-3.5 mr-2" />
                             Clear
@@ -115,8 +154,12 @@ const DatabaseTerminalModal: React.FC<DatabaseTerminalModalProps> = ({
                             onClick={handleRun}
                             disabled={isRunning}
                         >
-                            {isRunning ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-2" /> : <Play className="w-3.5 h-3.5 mr-2 fill-current" />}
-                            RUN
+                            {isRunning ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin mr-2" /> 
+                            ) : (
+                                <Play className="w-3.5 h-3.5 mr-2 fill-current" /> 
+                            )}
+                            {selectedQuery ? 'Run Selected' : 'Run'}
                         </Button>
                         <div className="w-4"></div>
                         <Button 
@@ -132,21 +175,31 @@ const DatabaseTerminalModal: React.FC<DatabaseTerminalModalProps> = ({
 
                 {/* Main Split Content */}
                 <div className="flex-1 flex flex-col">
-                    {/* Editor Area */}
-                    <div className="flex-1 min-h-[200px] relative bg-[#1C1C1C] overflow-hidden flex">
-                        {/* Line Numbers */}
-                        <div className="w-12 bg-[#1C1C1C] text-[#444] text-right pr-3 pt-4 text-xs font-mono select-none border-r border-[#2E2E2E]">
-                            {Array.from({ length: 15 }).map((_, i) => (
-                                <div key={i} className="leading-6">{i + 1}</div>
-                            ))}
-                        </div>
-                        {/* Text Area */}
-                        <textarea 
+                    {/* Editor Area (Monaco) */}
+                    <div className="flex-1 min-h-[200px] relative bg-[#1C1C1C] overflow-hidden">
+                        <Editor
+                            height="100%"
+                            defaultLanguage="sql"
+                            defaultValue="SHOW TABLES;"
                             value={query}
-                            onChange={(e) => setQuery(e.target.value)}
-                            className="flex-1 bg-[#1C1C1C] text-[#EDEDED] font-mono text-sm p-4 outline-none resize-none leading-6 placeholder-gray-600"
-                            placeholder="Write your SQL query here..."
-                            spellCheck={false}
+                            theme="cloudku-dark"
+                            beforeMount={handleEditorWillMount}
+                            onMount={handleEditorDidMount}
+                            onChange={(value) => setQuery(value || '')}
+                            loading={<Loader2 className="w-6 h-6 animate-spin text-[#3ECF8E] mx-auto mt-10" />}
+                            options={{
+                                minimap: { enabled: false },
+                                fontSize: 13,
+                                fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
+                                fontLigatures: true,
+                                lineNumbers: 'on',
+                                scrollBeyondLastLine: false,
+                                automaticLayout: true,
+                                padding: { top: 16, bottom: 16 },
+                                suggest: { showKeywords: true },
+                                renderLineHighlight: 'line',
+                                contextmenu: false,
+                            }}
                         />
                     </div>
 
@@ -154,8 +207,8 @@ const DatabaseTerminalModal: React.FC<DatabaseTerminalModalProps> = ({
                     <div className="h-px bg-[#2E2E2E] w-full"></div>
 
                     {/* Results Area */}
-                    <div className="h-[350px] bg-[#181818] overflow-auto flex flex-col">
-                        <div className="px-4 py-2 bg-[#1F1F1F] border-b border-[#2E2E2E] flex items-center justify-between sticky top-0">
+                    <div className="h-[350px] bg-[#181818] overflow-auto flex flex-col border-t border-[#2E2E2E]">
+                        <div className="px-4 py-2 bg-[#1F1F1F] border-b border-[#2E2E2E] flex items-center justify-between sticky top-0 z-10">
                             <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Results</span>
                             {result && (
                                 <span className="text-xs text-[#3ECF8E] flex items-center gap-1">
@@ -169,7 +222,7 @@ const DatabaseTerminalModal: React.FC<DatabaseTerminalModalProps> = ({
                             {!result && !error && (
                                 <div className="h-full flex flex-col items-center justify-center text-gray-600">
                                     <Terminal className="w-12 h-12 mb-3 opacity-20" />
-                                    <p className="text-sm">Enter your password and run a query</p>
+                                    <p className="text-sm">Enter SQL query and press Run (Ctrl+Enter)</p>
                                 </div>
                             )}
 
@@ -184,7 +237,7 @@ const DatabaseTerminalModal: React.FC<DatabaseTerminalModalProps> = ({
                                     <thead>
                                         <tr>
                                             {result.headers.map((h: string, i: number) => (
-                                                <th key={i} className="bg-[#252525] text-gray-400 font-medium border-b border-r border-[#333] px-4 py-2 whitespace-nowrap sticky top-0">
+                                                <th key={i} className="bg-[#252525] text-gray-400 font-medium border-b border-r border-[#333] px-4 py-2 whitespace-nowrap sticky top-0 z-10">
                                                     {h}
                                                 </th>
                                             ))}
@@ -214,9 +267,16 @@ const DatabaseTerminalModal: React.FC<DatabaseTerminalModalProps> = ({
                 </div>
 
                 {/* Status Bar */}
-                <div className="h-8 bg-[#3ECF8E] text-[#151515] flex items-center justify-between px-4 text-[10px] font-bold uppercase tracking-wider">
-                     <span>{database.database_type === 'mysql' ? 'MySQL 8.0' : 'PostgreSQL 15'}</span>
-                     <span>{password ? 'Ready' : 'Enter password to execute'}</span>
+                <div className="h-7 bg-[#191919] border-t border-[#2E2E2E] text-gray-400 flex items-center justify-between px-4 text-[10px] font-medium tracking-wide select-none">
+                     <div className="flex items-center gap-2">
+                        <div className={`w-1.5 h-1.5 rounded-full ${isRunning ? 'bg-yellow-500 animate-pulse' : 'bg-[#3ECF8E]'}`}></div>
+                        <span>{database.database_type === 'mysql' ? 'MySQL 8.0' : 'PostgreSQL 15'}</span>
+                     </div>
+                     <div className="flex items-center gap-4">
+                        <span>Ln {selectedQuery ? (selectedQuery.split('\n').length) : '1'}, Col 1</span>
+                        <span>UTF-8</span>
+                        <span className={selectedQuery ? 'text-[#3ECF8E]' : ''}>{selectedQuery ? `${selectedQuery.length} chars selected` : 'Ready'}</span>
+                     </div>
                 </div>
             </DialogContent>
         </Dialog>
