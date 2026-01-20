@@ -1,0 +1,73 @@
+# CloudKu MySQL Shared Hosting
+# Docker Compose Configuration
+
+version: '3.8'
+
+networks:
+  cloudku-mysql-network:
+    driver: bridge
+
+services:
+  # MySQL Database Server
+  cloudku-mysql:
+    image: mysql:8.0
+    container_name: cloudku-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      # SECURITY: Only root can access, user databases will be created via API
+    volumes:
+      - cloudku-mysql-data:/var/lib/mysql
+      - ./mysql-init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - cloudku-mysql-network
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    command: >
+      --default-authentication-plugin=mysql_native_password
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --max-connections=200
+      --max-allowed-packet=256M
+      --innodb-buffer-pool-size=512M
+      --innodb-log-file-size=128M
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # phpMyAdmin - Web-based MySQL Management
+  cloudku-phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: cloudku-phpmyadmin
+    restart: unless-stopped
+    environment:
+      PMA_HOST: cloudku-mysql
+      PMA_PORT: 3306
+      # SECURITY: Disable root login via phpMyAdmin
+      # PMA_USER and PMA_PASSWORD must be unset for cookie auth
+      # Additional security settings
+      HIDE_PHP_VERSION: "true"
+      UPLOAD_LIMIT: 50M
+      MAX_EXECUTION_TIME: 300
+      MEMORY_LIMIT: 512M
+    volumes:
+      - ./phpmyadmin-config/config.user.inc.php:/etc/phpmyadmin/config.user.inc.php:ro
+      - ./phpmyadmin-config/signon.php:/var/www/html/signon.php:ro
+    networks:
+      - cloudku-mysql-network
+    ports:
+      - "${PHPMYADMIN_PORT:-8080}:80"
+    depends_on:
+      cloudku-mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  cloudku-mysql-data:
+    driver: local

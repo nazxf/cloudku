@@ -1,0 +1,16 @@
+# Binaries
+main
+main.exe
+cloudku-server
+cloudku-server.exe
+
+# Environment
+.env
+
+# IDE
+.idea
+.vscode
+
+# OS Specific
+.DS_Store
+Thumbs.db
