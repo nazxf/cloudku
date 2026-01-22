@@ -1,10 +1,13 @@
 package v1
 
 import (
+	"time"
+
 	"cloudku-server/controllers"
 	"cloudku-server/middleware"
 
 	"github.com/gin-gonic/gin"
+	"golang.org/x/time/rate"
 )
 
 // RegisterAuthRoutes sets up authentication routes
@@ -20,15 +23,18 @@ import (
 //   - GET    /auth/me         - Get current authenticated user
 //   - DELETE /auth/me         - Delete current user account
 func RegisterAuthRoutes(rg *gin.RouterGroup, ctrl *controllers.AuthController) {
+	// SECURITY: Create rate limiters for auth endpoints
+	// Strict limiter: 10 requests per minute for sensitive operations
+	strictLimiter := middleware.NewRateLimiter(rate.Every(time.Minute/10), 10)
+
 	auth := rg.Group("/auth")
 	{
 		// ==========================================
 		// PUBLIC AUTH ROUTES
-		// These endpoints are accessible without authentication
-		// Rate limiting is recommended for production
+		// SECURITY: Rate limited to prevent brute force attacks
 		// ==========================================
-		auth.POST("/register", ctrl.Register)
-		auth.POST("/login", ctrl.Login)
+		auth.POST("/register", middleware.RateLimitMiddleware(strictLimiter), ctrl.Register)
+		auth.POST("/login", middleware.RateLimitMiddleware(strictLimiter), ctrl.Login)
 		auth.POST("/google", ctrl.GoogleAuth)
 		auth.POST("/google/callback", ctrl.GoogleAuthCallback)
 		auth.POST("/github", ctrl.GithubAuth)

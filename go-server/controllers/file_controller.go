@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"archive/zip"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -162,6 +163,10 @@ func (fc *FileController) GetStats(c *gin.Context) {
 
 // UploadFile handles file upload
 func (fc *FileController) UploadFile(c *gin.Context) {
+	// SECURITY: Limit file upload size to 100MB per request
+	const maxUploadSize = 100 * 1024 * 1024 // 100MB
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxUploadSize)
+
 	userID := middleware.GetUserIDString(c)
 	relativePath := c.PostForm("path")
 	if relativePath == "" {
@@ -246,6 +251,15 @@ func (fc *FileController) DownloadFile(c *gin.Context) {
 		return
 	}
 
+	// SECURITY: Check for symlink attacks
+	if err := validateSymlinkPath(fullPath, userPath); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{
+			"success": false,
+			"message": "Access denied",
+		})
+		return
+	}
+
 	// Check if file exists
 	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
 		c.JSON(http.StatusNotFound, gin.H{
@@ -288,11 +302,9 @@ func (fc *FileController) DeleteFile(c *gin.Context) {
 
 	// Delete file or directory
 	if err := os.RemoveAll(fullPath); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "Failed to delete",
-			"error":   err.Error(),
-		})
+		logAndRespond(c, http.StatusInternalServerError,
+			fmt.Sprintf("Failed to delete %s", fullPath), err,
+			"Failed to delete item")
 		return
 	}
 
@@ -333,11 +345,9 @@ func (fc *FileController) CreateFolder(c *gin.Context) {
 
 	// Create directory
 	if err := os.MkdirAll(fullPath, 0755); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "Failed to create folder",
-			"error":   err.Error(),
-		})
+		logAndRespond(c, http.StatusInternalServerError,
+			fmt.Sprintf("Failed to create folder %s", fullPath), err,
+			"Failed to create folder")
 		return
 	}
 
@@ -364,6 +374,15 @@ func (fc *FileController) ReadFile(c *gin.Context) {
 
 	// Security check
 	if !strings.HasPrefix(filepath.Clean(fullPath), filepath.Clean(userPath)) {
+		c.JSON(http.StatusForbidden, gin.H{
+			"success": false,
+			"message": "Access denied",
+		})
+		return
+	}
+
+	// SECURITY: Check for symlink attacks
+	if err := validateSymlinkPath(fullPath, userPath); err != nil {
 		c.JSON(http.StatusForbidden, gin.H{
 			"success": false,
 			"message": "Access denied",
@@ -418,11 +437,9 @@ func (fc *FileController) UpdateFile(c *gin.Context) {
 
 	// Write file content
 	if err := os.WriteFile(fullPath, []byte(req.Content), 0644); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "Failed to save file",
-			"error":   err.Error(),
-		})
+		logAndRespond(c, http.StatusInternalServerError,
+			fmt.Sprintf("Failed to save file %s", fullPath), err,
+			"Failed to save file")
 		return
 	}
 
@@ -465,11 +482,9 @@ func (fc *FileController) RenameFile(c *gin.Context) {
 
 	// Rename
 	if err := os.Rename(oldFullPath, newFullPath); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "Failed to rename",
-			"error":   err.Error(),
-		})
+		logAndRespond(c, http.StatusInternalServerError,
+			fmt.Sprintf("Failed to rename %s to %s", oldFullPath, newFullPath), err,
+			"Failed to rename item")
 		return
 	}
 
@@ -510,11 +525,9 @@ func (fc *FileController) CopyFiles(c *gin.Context) {
 
 		// Copy file or directory
 		if err := copyPath(srcPath, destPath); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"success": false,
-				"message": "Failed to copy",
-				"error":   err.Error(),
-			})
+			logAndRespond(c, http.StatusInternalServerError,
+				fmt.Sprintf("Failed to copy %s to %s", srcPath, destPath), err,
+				"Failed to copy items")
 			return
 		}
 	}
@@ -556,11 +569,9 @@ func (fc *FileController) MoveFiles(c *gin.Context) {
 
 		// Move file or directory
 		if err := os.Rename(srcPath, destPath); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"success": false,
-				"message": "Failed to move",
-				"error":   err.Error(),
-			})
+			logAndRespond(c, http.StatusInternalServerError,
+				fmt.Sprintf("Failed to move %s to %s", srcPath, destPath), err,
+				"Failed to move items")
 			return
 		}
 	}
@@ -766,10 +777,19 @@ func (fc *FileController) GitClone(c *gin.Context) {
 		return
 	}
 
+	// SECURITY: Validate URL is from trusted source and has no injection chars
+	if !isValidGitURL(req.URL) {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "Only HTTPS URLs from GitHub, GitLab, or Bitbucket are allowed",
+		})
+		return
+	}
+
 	userPath := getUserFilesPath(userID)
 	destPath := filepath.Join(userPath, req.Path)
 
-	// Security check
+	// Security check - path traversal
 	if !strings.HasPrefix(filepath.Clean(destPath), filepath.Clean(userPath)) {
 		c.JSON(http.StatusForbidden, gin.H{
 			"success": false,
@@ -778,17 +798,30 @@ func (fc *FileController) GitClone(c *gin.Context) {
 		return
 	}
 
-	// Execute git clone
-	cmd := exec.Command("git", "clone", req.URL, destPath)
+	// SECURITY: Set timeout to prevent hanging clones (60 seconds)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
+	defer cancel()
+
+	// SECURITY: Use shallow clone and disable hooks to prevent malicious code execution
+	cmd := exec.CommandContext(ctx, "git", "clone",
+		"--depth", "1", // Shallow clone only
+		"--config", "core.hooksPath=/dev/null", // Disable git hooks
+		req.URL, destPath)
+
+	// SECURITY: Sanitize environment - disable credential prompts
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		// SECURITY: Don't expose full git output to user (may contain sensitive info)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
-			"message": "Failed to clone repository",
-			"error":   string(output),
+			"message": "Failed to clone repository. Please check the URL and try again.",
 		})
 		return
 	}
+
+	_ = output // Suppress unused warning
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,

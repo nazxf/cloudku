@@ -96,16 +96,35 @@ func (s *MySQLService) escapePassword(password string) string {
 	return strings.ReplaceAll(password, "'", "''")
 }
 
-// SECURITY: validatePassword checks for dangerous characters in password
+// SECURITY: validatePassword checks for dangerous characters and enforces strong password policy
 func (s *MySQLService) validatePassword(password string) error {
 	// Reject null bytes which could truncate the password
 	if strings.ContainsRune(password, '\x00') {
 		return fmt.Errorf("password contains invalid characters")
 	}
-	// Minimum length check (6 chars for dev flexibility, production should use stronger)
-	if len(password) < 6 {
-		return fmt.Errorf("password must be at least 6 characters")
+
+	// SECURITY: Minimum 12 characters for production security
+	if len(password) < 12 {
+		return fmt.Errorf("password must be at least 12 characters")
 	}
+
+	// SECURITY: Password complexity requirements
+	var hasUpper, hasLower, hasDigit bool
+	for _, c := range password {
+		switch {
+		case 'A' <= c && c <= 'Z':
+			hasUpper = true
+		case 'a' <= c && c <= 'Z':
+			hasLower = true
+		case '0' <= c && c <= '9':
+			hasDigit = true
+		}
+	}
+
+	if !hasUpper || !hasLower || !hasDigit {
+		return fmt.Errorf("password must contain at least one uppercase letter, one lowercase letter, and one digit")
+	}
+
 	return nil
 }
 

@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+
 	"github.com/joho/godotenv"
 )
 
@@ -67,10 +68,30 @@ func Load() *Config {
 		log.Println("⚠️ No .env file found, using system environment variables")
 	}
 
+	// SECURITY: Validate JWT secret before using
+	jwtSecret := os.Getenv("JWT_SECRET")
+	environment := getEnv("NODE_ENV", "development")
+
+	// SECURITY CRITICAL: Crash on startup if JWT is not properly configured in production
+	if jwtSecret == "" || jwtSecret == "your-secret-key-change-this" {
+		if environment == "production" {
+			log.Fatal("❌ CRITICAL: JWT_SECRET must be set to a secure value in production!")
+		}
+		log.Println("⚠️ WARNING: Using insecure default JWT_SECRET - NOT FOR PRODUCTION!")
+		jwtSecret = "your-secret-key-change-this"
+	}
+
+	// SECURITY: Validate minimum length (256 bits = 32 chars minimum for HS256)
+	if len(jwtSecret) < 32 && environment == "production" {
+		log.Fatal("❌ CRITICAL: JWT_SECRET must be at least 32 characters in production!")
+	} else if len(jwtSecret) < 32 {
+		log.Println("⚠️ WARNING: JWT_SECRET should be at least 32 characters for security")
+	}
+
 	AppConfig = &Config{
 		// Server
 		Port:        getEnv("PORT", "3001"),
-		Environment: getEnv("NODE_ENV", "development"),
+		Environment: environment,
 
 		// Database
 		DatabaseURL: getEnv("DATABASE_URL", ""),
@@ -80,8 +101,8 @@ func Load() *Config {
 		DBPassword:  getEnv("DB_PASSWORD", ""),
 		DBName:      getEnv("DB_NAME", "hostmodern"),
 
-		// JWT
-		JWTSecret:    getEnv("JWT_SECRET", "your-secret-key-change-this"),
+		// JWT - now validated above
+		JWTSecret:    jwtSecret,
 		JWTExpiresIn: getEnv("JWT_EXPIRES_IN", "7d"),
 
 		// Frontend

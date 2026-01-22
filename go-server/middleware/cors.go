@@ -23,6 +23,17 @@ func CORSMiddleware() gin.HandlerFunc {
 		c.Header("X-XSS-Protection", "1; mode=block") // Enable browser XSS filter
 		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
 
+		// SECURITY: Content Security Policy - prevents XSS and injection attacks
+		c.Header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; frame-ancestors 'none'")
+
+		// SECURITY: Strict Transport Security - enforce HTTPS (set when using HTTPS)
+		if config.AppConfig.Environment == "production" {
+			c.Header("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
+		}
+
+		// SECURITY: Permissions Policy - disable sensitive features by default
+		c.Header("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
 			return

@@ -49,10 +49,16 @@ func main() {
 	// Create Gin router
 	r := gin.New()
 
+	// SECURITY: Set max multipart form memory (50MB)
+	r.MaxMultipartMemory = 50 << 20 // 50MB
+
 	// Add middlewares
 	r.Use(gin.Recovery())
 	r.Use(middleware.LoggerMiddleware())
 	r.Use(middleware.CORSMiddleware())
+
+	// SECURITY: Request timeout middleware (30 seconds)
+	r.Use(middleware.TimeoutMiddleware(30 * time.Second))
 
 	// Setup routes
 	routes.SetupRoutes(r)
@@ -70,7 +76,12 @@ func main() {
 
 	// Start server in goroutine
 	go func() {
-		printBanner(cfg)
+		// SECURITY: Only show banner in non-production environments
+		if cfg.Environment != "production" {
+			printBanner(cfg)
+		} else {
+			log.Printf("✅ Server started on port %s in production mode", cfg.Port)
+		}
 
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Failed to start server: %v", err)
