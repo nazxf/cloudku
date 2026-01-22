@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -24,9 +23,7 @@ func main() {
 	cfg := config.Load()
 
 	// Set Gin mode
-	if cfg.Environment == "production" {
-		gin.SetMode(gin.ReleaseMode)
-	}
+	gin.SetMode(gin.ReleaseMode)
 
 	// Connect to database
 	if err := database.Connect(); err != nil {
@@ -76,12 +73,8 @@ func main() {
 
 	// Start server in goroutine
 	go func() {
-		// SECURITY: Only show banner in non-production environments
-		if cfg.Environment != "production" {
-			printBanner(cfg)
-		} else {
-			log.Printf("✅ Server started on port %s in production mode", cfg.Port)
-		}
+		// Always show banner
+		printBanner(cfg)
 
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Failed to start server: %v", err)
@@ -107,88 +100,108 @@ func main() {
 }
 
 func printBanner(cfg *config.Config) {
-	line := strings.Repeat("=", 65)
+	// ANSI Colors
+	const (
+		Reset  = "\033[0m"
+		Red    = "\033[31m"
+		Green  = "\033[32m"
+		Yellow = "\033[33m"
+		Blue   = "\033[34m"
+		Purple = "\033[35m"
+		Cyan   = "\033[36m"
+		White  = "\033[37m"
+		Gray   = "\033[90m"
+		Bold   = "\033[1m"
+	)
 
-	banner := fmt.Sprintf(`
-%s
-🚀 CloudKu API Server (Golang) - v1.0.0
-%s
-📡 Server running on: http://localhost:%s
-🗄️  Database: Connected to PostgreSQL
-🌍 Environment: %s
-🔗 CORS enabled for: %s
-📦 API Version: v1 (stable)
-%s
+	// Helper for coloring methods
+	methodColor := func(method string) string {
+		switch method {
+		case "GET":
+			return Blue + "GET   " + Reset
+		case "POST":
+			return Green + "POST  " + Reset
+		case "PUT":
+			return Yellow + "PUT   " + Reset
+		case "DELETE":
+			return Red + "DELETE" + Reset
+		default:
+			return White + method + Reset
+		}
+	}
 
-📋 Available API Endpoints:
+	fmt.Println()
+	fmt.Println(Cyan + Bold + `   ________                _____ __
+  / ____/ /___  __  ______/ / //_/_  __
+ / /   / / __ \/ / / / __  / ,< / / / /
+/ /___/ / /_/ / /_/ / /_/ / /| / /_/ /
+\____/_/\____/\__,_/\__,_/_/ |_\__,_/ ` + Reset)
+	fmt.Println()
 
-🔍 DISCOVERY:
-  GET    /health             - Server health check
-  GET    /api                - API info
-  GET    /api/versions       - List API versions
+	// System Info Box
+	fmt.Println(Gray + " ╔════════════════════════════════════════════════════════════════════╗" + Reset)
+	fmt.Printf("%s ║ %s🚀 CLOUDKU SERVER STATUS%s                                           %s║%s\n", Gray, White+Bold, Reset, Gray, Reset)
+	fmt.Println(Gray + " ╠════════════════════════════════════════════════════════════════════╣" + Reset)
+	fmt.Printf("%s ║ %s📡 STATUS   %s:  %s● ONLINE%s                                           %s║%s\n", Gray, White, Reset, Green, Reset, Gray, Reset)
+	fmt.Printf("%s ║ %s🔌 PORT     %s:  %s%-47s%s%s║%s\n", Gray, White, Reset, Cyan, cfg.Port, Reset, Gray, Reset)
+	fmt.Printf("%s ║ %s🌍 ENV      %s:  %s%-47s%s%s║%s\n", Gray, White, Reset, Yellow, cfg.Environment, Reset, Gray, Reset)
+	fmt.Printf("%s ║ %s🗄️  DATABASE %s:  %sPostgreSQL (Connected)%s                            %s║%s\n", Gray, White, Reset, Blue, Reset, Gray, Reset)
+	fmt.Printf("%s ║ %s🔗 FRONTEND %s:  %s%-47s%s%s║%s\n", Gray, White, Reset, Purple, cfg.FrontendURL, Reset, Gray, Reset)
+	fmt.Println(Gray + " ╚════════════════════════════════════════════════════════════════════╝" + Reset)
+	fmt.Println()
 
-🔐 AUTH (/api/v1/auth):
-  POST   /register           - Email/password register [PUBLIC]
-  POST   /login              - Email/password login [PUBLIC]
-  POST   /google             - Google OAuth login [PUBLIC]
-  POST   /github             - GitHub OAuth login [PUBLIC]
-  GET    /me                 - Get current user [PROTECTED]
-  DELETE /me                 - Delete account [PROTECTED]
+	fmt.Println(Bold + " 📋 AVAILABLE MODULES & ENDPOINTS" + Reset)
+	fmt.Println(Gray + " ──────────────────────────────────────────────────────────────────────" + Reset)
 
-📁 FILES (/api/v1/files) [ALL PROTECTED]:
-  GET    /list               - List files
-  GET    /stats              - Get storage stats
-  POST   /upload             - Upload file
-  GET    /download           - Download file
-  DELETE /delete             - Delete file/folder
-  POST   /folder             - Create folder
-  GET    /read               - Read file content
-  PUT    /update             - Update file content
-  PUT    /rename             - Rename file/folder
-  POST   /copy               - Copy files
-  POST   /move               - Move files
-  POST   /extract            - Extract ZIP
-  POST   /compress           - Compress to ZIP
-  POST   /git-clone          - Clone Git repository
-  PUT    /permissions        - Change permissions
+	// Function to print a section header
+	printSection := func(icon, name string) {
+		fmt.Printf("\n %s%s %s%s\n", Cyan, icon, name, Reset)
+	}
 
-🌐 DOMAINS (/api/v1/domains) [ALL PROTECTED]:
-  GET    /                   - Get all domains
-  GET    /:id                - Get domain details
-  POST   /                   - Create domain
-  PUT    /:id                - Update domain
-  DELETE /:id                - Delete domain
-  POST   /:id/verify         - Verify domain DNS
-  GET    /:id/dns            - Get DNS records
-  POST   /:id/dns            - Create DNS record
-  DELETE /:id/dns/:recordId  - Delete DNS record
+	// Function to print an endpoint
+	printEndpoint := func(method, path, desc string) {
+		fmt.Printf("   %s %-25s %s%s%s\n", methodColor(method), path, Gray, desc, Reset)
+	}
 
-📝 DNS (/api/v1/dns) [ALL PROTECTED]:
-  GET    /stats              - DNS statistics
-  GET    /powerdns/status    - PowerDNS status
-  POST   /powerdns/reload    - Reload PowerDNS
-  GET    /:domainId/records  - Get PowerDNS records
-  GET    /:domainId/export   - Export zone file
+	// Discovery
+	printSection("🔍", "DISCOVERY")
+	printEndpoint("GET", "/health", "Server health check")
+	printEndpoint("GET", "/api", "API info")
 
-🔒 SSL (/api/v1/ssl) [ALL PROTECTED]:
-  GET    /stats              - SSL statistics
-  GET    /expiring           - Expiring certificates
-  POST   /:domainId/enable   - Enable SSL
-  POST   /:domainId/disable  - Disable SSL
-  POST   /:domainId/renew    - Renew SSL
-  GET    /:domainId/info     - Get SSL info
+	// Auth
+	printSection("🔐", "AUTHENTICATION")
+	printEndpoint("POST", "/api/v1/auth/login", "User login")
+	printEndpoint("POST", "/api/v1/auth/register", "New user registration")
+	printEndpoint("GET", "/api/v1/auth/me", "Get current user profile")
 
-🗄️ DATABASES (/api/v1/databases) [ALL PROTECTED]:
-  GET    /                   - Get all databases
-  GET    /stats              - Database statistics
-  POST   /                   - Create database
-  DELETE /:id                - Delete database
-  PUT    /:id/password       - Change password
-  GET    /:id/schema         - Get schema (SQL Terminal)
-  POST   /:id/query          - Execute query (SQL Terminal)
+	// Files
+	printSection("📁", "FILE MANAGER")
+	printEndpoint("GET", "/api/v1/files/list", "List directory contents")
+	printEndpoint("POST", "/api/v1/files/upload", "Upload new files")
+	printEndpoint("POST", "/api/v1/files/folder", "Create new directory")
+	printEndpoint("POST", "/api/v1/files/compress", "Compress files to ZIP")
+	printEndpoint("POST", "/api/v1/files/extract", "Extract ZIP archive")
 
-%s
-`, line, line, cfg.Port, cfg.Environment, cfg.FrontendURL, line, line)
+	// Domains
+	printSection("🌐", "DOMAINS & DNS")
+	printEndpoint("GET", "/api/v1/domains", "List all domains")
+	printEndpoint("POST", "/api/v1/domains", "Register new domain")
+	printEndpoint("POST", "/api/v1/domains/:id/verify", "Verify domain ownership")
+	printEndpoint("GET", "/api/v1/domains/:id/dns", "Manage DNS records")
 
-	fmt.Print(banner)
+	// SSL
+	printSection("🔒", "SSL/TLS CERTIFICATES")
+	printEndpoint("GET", "/api/v1/ssl/stats", "Certificate statistics")
+	printEndpoint("POST", "/api/v1/ssl/:id/renew", "Renew SSL certificate")
+
+	// Databases
+	printSection("🗄️", "DATABASES")
+	printEndpoint("GET", "/api/v1/databases", "List databases")
+	printEndpoint("POST", "/api/v1/databases", "Create new database")
+	printEndpoint("POST", "/api/v1/databases/query", "Execute SQL query")
+
+	fmt.Println()
+	fmt.Println(Gray + " ──────────────────────────────────────────────────────────────────────" + Reset)
+	fmt.Printf(" %sServer is ready to accept connections...%s\n", Green, Reset)
+	fmt.Println()
 }
