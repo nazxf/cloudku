@@ -45,7 +45,8 @@ const Header: React.FC<HeaderProps> = ({ user, onOpenAuth, onLogout, isSolid = f
     { name: 'Beranda', href: '#' },
     { name: 'Hosting', href: '#hosting' },
     { name: 'Domain', href: '#domain' },
-    { name: 'Aplikasi', href: '/solutions', isNew: true },
+   
+    { name: 'Aplikasi', href: '/solutions' },
 
     { name: 'Bantuan', href: '/bantuan' },
   ];
@@ -245,11 +246,7 @@ const Header: React.FC<HeaderProps> = ({ user, onOpenAuth, onLogout, isSolid = f
                     }`}
                   >
                     {link.name}
-                    {link.isNew && (
-                      <span className="bg-rose-500 text-white text-[8px] font-black px-1.5 py-0.5 rounded-md uppercase tracking-tighter animate-bounce">
-                        New
-                      </span>
-                    )}
+                
                     <span className={`absolute bottom-0 left-0 w-0 h-0.5 bg-blue-600 transition-all duration-300 group-hover/megamenu:w-full ${!showSolid && 'bg-white'}`}></span>
                   </Link>
                 )}
@@ -450,11 +447,7 @@ const Header: React.FC<HeaderProps> = ({ user, onOpenAuth, onLogout, isSolid = f
                 >
                   <div className="flex items-center gap-3">
                     {link.name}
-                    {link.isNew && (
-                      <span className="bg-rose-500 text-white text-[10px] font-black px-2 py-0.5 rounded-lg uppercase tracking-wider">
-                        New
-                      </span>
-                    )}
+              
                   </div>
                   <svg className="w-5 h-5 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M9 5l7 7-7-7" /></svg>
                 </Link>
