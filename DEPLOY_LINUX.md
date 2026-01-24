@@ -1,166 +1,184 @@
-# 🐧 CloudKu - Linux Production Guide
+# 🐧 CloudKu - Production Deployment Guide
 
-Panduan ini akan membantu Anda mendeploy CloudKu ke server Linux (Ubuntu/Debian) untuk production.
+Panduan lengkap untuk mendeploy CloudKu ke server produksi (Ubuntu/Debian).
 
-## 📁 Struktur Folder Deploy
+## 📋 Table of Contents
 
-Dalam folder `deploy/` terdapat 3 file penting:
-
-1. `cloudku-backend.service` - Konfigurasi agar Go server jalan otomatis (auto-restart).
-2. `nginx.conf` - Konfigurasi Web Server & Reverse Proxy.
-3. `deploy.sh` - Script otomatisasi instalasi.
+1. [Prerequisites](#prerequisites)
+2. [Otomatis (Deploy Script)](#1-cara-deploy-otomatis)
+3. [Manual Step-by-Step](#2-cara-deploy-manual)
+4. [MySQL Shared Hosting Setup](#3-setup-mysql-shared-hosting-docker)
+5. [Security Config](#4-security-configuration)
 
 ---
 
-## 🛠️ Cara Deploy (Manual Step-by-Step)
+## Prerequisites
 
-### 1. Persiapan Server
+- **OS**: Ubuntu 20.04/22.04 LTS or Debian 11/12.
+- **Root Access**: SSH access as root or sudo user.
+- **Domain**: Sebuah domain yang diarahkan ke IP server Anda.
 
-Pastikan Anda sudah login ke VPS/Server via SSH.
+---
+
+## 1. Cara Deploy Otomatis
+
+Gunakan script `deploy.sh` yang sudah disediakan untuk instalasi cepat.
+
+1.  Upload seluruh folder project ke server Anda (misal ke `~/cloudku`).
+2.  Masuk ke folder `deploy`:
+    ```bash
+    cd cloudku/deploy
+    ```
+3.  Berikan permission execute dan jalankan:
+    ```bash
+    chmod +x deploy.sh
+    sudo ./deploy.sh
+    ```
+4.  Ikuti instruksi "NEXT STEPS" yang muncul di akhir script.
+
+---
+
+## 2. Cara Deploy Manual
+
+Jika Anda ingin kontrol penuh, ikuti langkah ini.
+
+### 2.1 Install Dependencies
 
 ```bash
-# Update repository
 sudo apt update
-
-# Install dependencies
-sudo apt install -y nodejs npm golang postgresql nginx git
+sudo apt install -y nodejs npm golang postgresql nginx git docker.io docker-compose
 ```
 
-### 2. Clone Repository
+### 2.2 Setup PostgreSQL (Main Database)
 
 ```bash
-git clone <repository_url>
+sudo -u postgres psql
+# CREATE DATABASE hostmodern;
+# ALTER USER postgres WITH PASSWORD 'secure_password';
+# \q
+```
+
+Import schema:
+
+```bash
+psql -U postgres -d hostmodern -f database/schema.sql
+```
+
+### 2.3 Build Frontend (React)
+
+```bash
 cd cloudku
-```
-
-### 3. Build Frontend (React)
-
-Kita perlu mengubah kode React menjadi static file yang ringan.
-
-```bash
-# Install dependencies
 npm install
-
-# Build production version
 npm run build
-
-# Output akan ada di folder "dist/"
+# Output di folder dist/
 ```
 
-### 4. Build Backend (Go)
-
-Compile Go menjadi binary file yang bisa jalan sendiri.
+### 2.4 Build Backend (Go)
 
 ```bash
 cd go-server
-
-# Build binary
+go mod tidy
 go build -o cloudku-server
 ```
 
-### 5. Setup Database
-
-```bash
-# Login ke postgres
-sudo -u postgres psql
-
-# Buat database & user
-CREATE DATABASE hostmodern;
-ALTER USER postgres WITH PASSWORD 'your-strong-password';
-\q
-
-# Import Schema
-psql -U postgres -d hostmodern -f ../database/schema.sql
-```
-
-### 6. Setup Production Environment
-
-Buat folder untuk aplikasi production.
+### 2.5 Directory Setup
 
 ```bash
 sudo mkdir -p /var/www/cloudku
 sudo cp -r dist /var/www/cloudku/
 sudo cp -r go-server /var/www/cloudku/
-
-# Set permission executable
 sudo chmod +x /var/www/cloudku/go-server/cloudku-server
 ```
 
-**PENTING:** Buat file `.env` di server production:
+### 2.6 Setup Systemd (Backend Service)
+
+Edit `deploy/cloudku-backend.service`:
+
+- Pastikan `User` dan `WorkingDirectory` benar.
+  Copy ke systemd:
 
 ```bash
-nano /var/www/cloudku/go-server/.env
-```
-
-Isi dengan konfigurasi production (gunakan password DB yang benar & matikan debug mode).
-
-### 7. Setup Systemd Service (Auto-Start)
-
-Agar backend tetap jalan walau server restart.
-
-```bash
-# Copy service file
 sudo cp deploy/cloudku-backend.service /etc/systemd/system/
-
-# Reload & Start
 sudo systemctl daemon-reload
 sudo systemctl enable cloudku-backend
 sudo systemctl start cloudku-backend
-
-# Cek status
-sudo systemctl status cloudku-backend
 ```
 
-### 8. Setup Nginx (Web Server)
+### 2.7 Setup Nginx (Reverse Proxy)
 
-Agar aplikasi bisa diakses via domain (port 80/443), bukan localhost:3001.
+Edit `deploy/nginx.conf`:
+
+- Ubah `server_name` menjadi domain Anda.
+  Copy ke sites-available:
 
 ```bash
-# Copy config
 sudo cp deploy/nginx.conf /etc/nginx/sites-available/cloudku
-
-# Edit domain anda
-sudo nano /etc/nginx/sites-available/cloudku
-
-# Enable site
 sudo ln -s /etc/nginx/sites-available/cloudku /etc/nginx/sites-enabled/
-sudo rm /etc/nginx/sites-enabled/default
-
-# Restart Nginx
 sudo nginx -t
 sudo systemctl restart nginx
 ```
 
 ---
 
-## ⚡ Cara Deploy (Otomatis)
+## 3. Setup MySQL Shared Hosting (Docker)
 
-Jika Anda malas melakukan langkah manual, gunakan script `deploy.sh`.
+Ini adalah komponen vital untuk fitur hosting user. Jalankan ini di server yang sama (atau server database terpisah).
 
-1. Upload seluruh project ke server.
-2. Berikan permission execute pada script:
-   ```bash
-   chmod +x deploy/deploy.sh
-   ```
-3. Edit `deploy.sh` sesuaikan path jika perlu.
-4. Jalankan:
-   ```bash
-   ./deploy/deploy.sh
-   ```
+1.  **Environment Variables:**
+    Copy `.env.mysql` ke server project.
+
+    ```bash
+    cp .env.mysql.example .env.mysql
+    ```
+
+    Edit `.env.mysql` dan set password `MYSQL_ROOT_PASSWORD` yang SANGAT KUAT.
+
+2.  **Start Containers:**
+    Dari root folder project:
+
+    ```bash
+    docker-compose -f docker-compose.mysql.yml up -d
+    ```
+
+3.  **Verifikasi:**
+    ```bash
+    docker ps
+    # Harus ada cloudku-mysql dan cloudku-phpmyadmin
+    ```
 
 ---
 
-## 🔒 Security Checklist (Production)
+## 4. Security Configuration
 
-1. **Firewall**: Setup UFW.
-   ```bash
-   sudo ufw allow OpenSSH
-   sudo ufw allow 'Nginx Full'
-   sudo ufw enable
-   ```
-2. **SSL/HTTPS**: Gunakan Certbot (Let's Encrypt).
-   ```bash
-   sudo apt install certbot python3-certbot-nginx
-   sudo certbot --nginx -d your-domain.com
-   ```
-3. **Database**: Jangan expose port 5432 ke public internet.
+### A. SSL Setup (HTTPS)
+
+Gunakan Certbot untuk mengamankan Nginx dengan SSL gratis Let's Encrypt.
+
+```bash
+sudo apt install certbot python3-certbot-nginx
+sudo certbot --nginx -d your-domain.com
+```
+
+### B. Firewall (UFW)
+
+Hanya buka port yang diperlukan.
+
+```bash
+sudo ufw allow OpenSSH
+sudo ufw allow 'Nginx Full' # Port 80, 443
+# sudo ufw allow 3306     # HANYA jika Anda ingin remote MySQL access (TIDAK DISARANKAN)
+# sudo ufw allow 8080     # HANYA jika Anda ingin akses phpMyAdmin langsung via IP
+sudo ufw enable
+```
+
+### C. Backend Env Secrets
+
+Pastikan `/var/www/cloudku/go-server/.env` di-set dengan benar untuk production:
+
+```env
+PORT=3001
+FRONTEND_URL=https://your-domain.com
+DB_HOST=localhost
+DB_PORT=5432
+...
+```
